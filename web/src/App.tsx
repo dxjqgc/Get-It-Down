@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Dayjs } from "dayjs";
 import dayjs from "dayjs";
+import "dayjs/locale/en";
+import "dayjs/locale/zh-cn";
 import type { FormListFieldData, TreeDataNode, TreeProps } from "antd";
 import {
   App as AntApp,
@@ -20,8 +22,11 @@ import {
   Space,
   Statistic,
   Tag,
-  Tree
+  Tree,
+  ConfigProvider
 } from "antd";
+import zhCN from "antd/locale/zh_CN";
+import enUS from "antd/locale/en_US";
 import {
   CheckCircleOutlined,
   ClockCircleOutlined,
@@ -40,12 +45,16 @@ import type {
   TaskSummary,
   TaskTreeNode
 } from "./types";
+import { getInitialLocale, persistLocale, translate } from "./i18n";
+import type { Locale } from "./i18n";
 
 interface StatusOption {
   value: TaskStatus;
   label: string;
   color: "default" | "processing" | "success";
 }
+
+type TranslateFn = (key: string, vars?: Record<string, string | number>) => string;
 
 interface ParentOption {
   value: number;
@@ -58,11 +67,15 @@ interface TaskModalState {
   task: TaskFormValues & { id?: number } | null;
 }
 
+type TaskModalFormValues = Omit<TaskFormValues, "dueDate"> & { dueDate: Dayjs | null };
+
 interface TaskModalProps {
   open: boolean;
   mode: "create" | "edit";
   initialValues: (TaskFormValues & { id?: number }) | null;
   parentOptions: ParentOption[];
+  statusOptions: StatusOption[];
+  t: TranslateFn;
   onCancel: () => void;
   onSubmit: (values: TaskFormSubmitValues) => Promise<void>;
 }
@@ -71,11 +84,13 @@ interface ApiError {
   message?: string;
 }
 
-const STATUS_OPTIONS: StatusOption[] = [
-  { value: "todo", label: "未开始", color: "default" },
-  { value: "in_progress", label: "进行中", color: "processing" },
-  { value: "done", label: "已完成", color: "success" }
-];
+function getStatusOptions(t: TranslateFn): StatusOption[] {
+  return [
+    { value: "todo", label: t("status.todo"), color: "default" },
+    { value: "in_progress", label: t("status.inProgress"), color: "processing" },
+    { value: "done", label: t("status.done"), color: "success" }
+  ];
+}
 
 const EMPTY_FORM: TaskFormValues = {
   title: "",
@@ -85,8 +100,8 @@ const EMPTY_FORM: TaskFormValues = {
   customProperties: [{ key: "", value: "" }]
 };
 
-function statusMeta(status: TaskStatus): StatusOption {
-  return STATUS_OPTIONS.find((item) => item.value === status) ?? STATUS_OPTIONS[0];
+function statusMeta(status: TaskStatus, statusOptions: StatusOption[]): StatusOption {
+  return statusOptions.find((item) => item.value === status) ?? statusOptions[0];
 }
 
 function flattenTree(tree: TaskTreeNode[], acc: TaskTreeNode[] = []): TaskTreeNode[] {
@@ -97,19 +112,21 @@ function flattenTree(tree: TaskTreeNode[], acc: TaskTreeNode[] = []): TaskTreeNo
   return acc;
 }
 
-function toTreeData(nodes: TaskTreeNode[]): TreeDataNode[] {
+function toTreeData(nodes: TaskTreeNode[], statusOptions: StatusOption[]): TreeDataNode[] {
   return nodes.map((node) => ({
     key: String(node.id),
     title: (
       <div className="tree-node">
         <span className="tree-node__title">{node.title}</span>
         <span className="tree-node__meta">
-          <Tag color={statusMeta(node.status).color}>{statusMeta(node.status).label}</Tag>
+          <Tag color={statusMeta(node.status, statusOptions).color}>
+            {statusMeta(node.status, statusOptions).label}
+          </Tag>
           <span className="tree-node__progress">{node.progress}%</span>
         </span>
       </div>
     ),
-    children: toTreeData(node.children ?? [])
+    children: toTreeData(node.children ?? [], statusOptions)
   }));
 }
 
@@ -161,7 +178,7 @@ function isDescendant(parent: TaskTreeNode, childId: number): boolean {
   return parent.children.some((child) => child.id === childId || isDescendant(child, childId));
 }
 
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
+async function request<T>(url: string, fallbackMessage: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     headers: {
       "Content-Type": "application/json"
@@ -170,8 +187,8 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    const data = (await response.json().catch(() => ({ message: "请求失败" }))) as ApiError;
-    throw new Error(data.message || "请求失败");
+    const data = (await response.json().catch(() => ({ message: fallbackMessage }))) as ApiError;
+    throw new Error(data.message || fallbackMessage);
   }
 
   if (response.status === 204) {
@@ -186,10 +203,12 @@ function TaskModal({
   mode,
   initialValues,
   parentOptions,
+  statusOptions,
+  t,
   onCancel,
   onSubmit
 }: TaskModalProps) {
-  const [form] = Form.useForm<TaskFormValues & { dueDate: Dayjs | null }>();
+  const [form] = Form.useForm<TaskModalFormValues>();
 
   useEffect(() => {
     form.setFieldsValue({
@@ -203,10 +222,10 @@ function TaskModal({
   return (
     <Modal
       open={open}
-      title={mode === "create" ? "新建任务" : "编辑任务"}
+      title={mode === "create" ? t("modal.createTitle") : t("modal.editTitle")}
       onCancel={onCancel}
       onOk={() => form.submit()}
-      okText={mode === "create" ? "创建" : "保存"}
+      okText={mode === "create" ? t("modal.create") : t("modal.save")}
       destroyOnHidden
     >
       <Form
@@ -225,30 +244,30 @@ function TaskModal({
       >
         <Form.Item
           name="title"
-          label="标题"
-          rules={[{ required: true, message: "请输入任务标题" }]}
+          label={t("form.title")}
+          rules={[{ required: true, message: t("form.titleRequired") }]}
         >
-          <Input placeholder="例如：背单词" />
+          <Input placeholder={t("form.titlePlaceholder")} />
         </Form.Item>
-        <Form.Item name="parentId" label="父任务">
-          <Select allowClear placeholder="不选则为顶级目标" options={parentOptions} />
+        <Form.Item name="parentId" label={t("form.parentTask")}>
+          <Select allowClear placeholder={t("form.parentTaskPlaceholder")} options={parentOptions} />
         </Form.Item>
-        <Form.Item name="status" label="状态">
-          <Select options={STATUS_OPTIONS.map(({ value, label }) => ({ value, label }))} />
+        <Form.Item name="status" label={t("form.status")}>
+          <Select options={statusOptions.map(({ value, label }) => ({ value, label }))} />
         </Form.Item>
-        <Form.Item name="dueDate" label="截止时间">
+        <Form.Item name="dueDate" label={t("form.dueDate")}>
           <DatePicker showTime style={{ width: "100%" }} />
         </Form.Item>
-        <Form.Item name="description" label="说明">
-          <Input.TextArea rows={4} placeholder="补充这个任务的执行方式或备注" />
+        <Form.Item name="description" label={t("form.description")}>
+          <Input.TextArea rows={4} placeholder={t("form.descriptionPlaceholder")} />
         </Form.Item>
         <Form.List name="customProperties">
           {(fields, { add, remove }) => (
             <div className="property-editor">
               <div className="property-editor__header">
-                <span>自定义属性</span>
+                <span>{t("form.customProperties")}</span>
                 <Button size="small" onClick={() => add({ key: "", value: "" })}>
-                  添加属性
+                  {t("form.addProperty")}
                 </Button>
               </div>
               {fields.map((field: FormListFieldData) => (
@@ -256,19 +275,19 @@ function TaskModal({
                   <Form.Item
                     {...field}
                     name={[field.name, "key"]}
-                    rules={[{ required: true, message: "属性名不能为空" }]}
+                    rules={[{ required: true, message: t("form.propertyNameRequired") }]}
                   >
-                    <Input placeholder="属性名" />
+                    <Input placeholder={t("form.propertyName")} />
                   </Form.Item>
                   <Form.Item
                     {...field}
                     name={[field.name, "value"]}
-                    rules={[{ required: true, message: "属性值不能为空" }]}
+                    rules={[{ required: true, message: t("form.propertyValueRequired") }]}
                   >
-                    <Input placeholder="属性值" />
+                    <Input placeholder={t("form.propertyValue")} />
                   </Form.Item>
                   <Button danger onClick={() => remove(field.name)}>
-                    删除
+                    {t("common.delete")}
                   </Button>
                 </Space>
               ))}
@@ -282,6 +301,7 @@ function TaskModal({
 
 export default function App() {
   const [messageApi, contextHolder] = message.useMessage();
+  const [locale, setLocale] = useState<Locale>(() => getInitialLocale());
   const [tree, setTree] = useState<TaskTreeNode[]>([]);
   const [summary, setSummary] = useState<TaskSummary | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -291,11 +311,21 @@ export default function App() {
     mode: "create",
     task: null
   });
+  const t = useMemo<TranslateFn>(
+    () => (key, vars) => translate(locale, key, vars),
+    [locale]
+  );
+  const statusOptions = useMemo(() => getStatusOptions(t), [t]);
+
+  useEffect(() => {
+    persistLocale(locale);
+    dayjs.locale(locale === "zh-CN" ? "zh-cn" : "en");
+  }, [locale]);
 
   const loadData = async (): Promise<void> => {
     setLoading(true);
     try {
-      const data = await request<TaskResponse>("/api/tasks");
+      const data = await request<TaskResponse>("/api/tasks", t("request.failed"));
       setTree(data.tree);
       setSummary(data.summary);
 
@@ -306,7 +336,7 @@ export default function App() {
         setSelectedId(flat[0]?.id ?? null);
       }
     } catch (error) {
-      messageApi.error(error instanceof Error ? error.message : "加载失败");
+      messageApi.error(error instanceof Error ? error.message : t("request.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -314,7 +344,7 @@ export default function App() {
 
   useEffect(() => {
     void loadData();
-  }, []);
+  }, [locale]);
 
   const flatTasks = useMemo(() => flattenTree(tree, []), [tree]);
   const selectedTask = flatTasks.find((item) => item.id === selectedId) ?? null;
@@ -361,23 +391,23 @@ export default function App() {
   const handleSubmit = async (values: TaskFormSubmitValues): Promise<void> => {
     try {
       if (modalState.mode === "create") {
-        await request("/api/tasks", {
+        await request("/api/tasks", t("request.failed"), {
           method: "POST",
           body: JSON.stringify(values)
         });
-        messageApi.success("任务已创建");
+        messageApi.success(t("success.created"));
       } else if (modalState.task?.id) {
-        await request(`/api/tasks/${modalState.task.id}`, {
+        await request(`/api/tasks/${modalState.task.id}`, t("request.failed"), {
           method: "PUT",
           body: JSON.stringify(values)
         });
-        messageApi.success("任务已更新");
+        messageApi.success(t("success.updated"));
       }
 
       setModalState({ open: false, mode: "create", task: null });
       await loadData();
     } catch (error) {
-      messageApi.error(error instanceof Error ? error.message : "保存失败");
+      messageApi.error(error instanceof Error ? error.message : t("request.saveFailed"));
     }
   };
 
@@ -387,11 +417,11 @@ export default function App() {
     }
 
     try {
-      await request<null>(`/api/tasks/${selectedTask.id}`, { method: "DELETE" });
-      messageApi.success("任务已删除");
+      await request<null>(`/api/tasks/${selectedTask.id}`, t("request.failed"), { method: "DELETE" });
+      messageApi.success(t("success.deleted"));
       await loadData();
     } catch (error) {
-      messageApi.error(error instanceof Error ? error.message : "删除失败");
+      messageApi.error(error instanceof Error ? error.message : t("request.deleteFailed"));
     }
   };
 
@@ -401,14 +431,14 @@ export default function App() {
     }
 
     try {
-      await request(`/api/tasks/${selectedTask.id}`, {
+      await request(`/api/tasks/${selectedTask.id}`, t("request.failed"), {
         method: "PUT",
         body: JSON.stringify({ status })
       });
-      messageApi.success("状态已更新");
+      messageApi.success(t("success.statusUpdated"));
       await loadData();
     } catch (error) {
-      messageApi.error(error instanceof Error ? error.message : "更新失败");
+      messageApi.error(error instanceof Error ? error.message : t("request.updateFailed"));
     }
   };
 
@@ -420,12 +450,12 @@ export default function App() {
     const targetTask = findTaskById(tree, targetId);
 
     if (!dragTask || !targetTask) {
-      messageApi.error("拖拽目标无效");
+      messageApi.error(t("error.invalidDropTarget"));
       return;
     }
 
     if (dragId === targetId || isDescendant(dragTask, targetId)) {
-      messageApi.error("不能拖动到自己的子任务层级");
+      messageApi.error(t("error.cannotDropToDescendant"));
       return;
     }
 
@@ -453,51 +483,70 @@ export default function App() {
     }
 
     try {
-      await request("/api/tasks/reorder", {
+      await request("/api/tasks/reorder", t("request.failed"), {
         method: "POST",
         body: JSON.stringify(payload)
       });
-      messageApi.success("排序已更新");
+      messageApi.success(t("success.reorderUpdated"));
       await loadData();
     } catch (error) {
-      messageApi.error(error instanceof Error ? error.message : "拖拽排序失败");
+      messageApi.error(error instanceof Error ? error.message : t("request.reorderFailed"));
     }
   };
 
   return (
-    <AntApp>
-      {contextHolder}
-      <div className="page-shell">
+    <ConfigProvider
+      locale={locale === "zh-CN" ? zhCN : enUS}
+      theme={{
+        token: {
+          colorPrimary: "#1f6f78",
+          borderRadius: 18,
+          colorBgLayout: "#f4efe6",
+          fontFamily: "'Avenir Next', 'PingFang SC', 'Hiragino Sans GB', sans-serif"
+        }
+      }}
+    >
+      <AntApp>
+        {contextHolder}
+        <div className="page-shell">
         <section className="hero">
           <div>
-            <span className="hero__eyebrow">Personal Goal Decomposition</span>
-            <h1>把大目标拆到今天就能开始做</h1>
+            <span className="hero__eyebrow">{t("hero.eyebrow")}</span>
+            <h1>{t("hero.title")}</h1>
             <p>
-              GetItDone 帮你把目标、子任务、属性和完成进度放进同一棵树里，随时继续拆分，直到每一步都足够清晰。
+              {t("hero.subtitle")}
             </p>
           </div>
           <Space>
+            <Select
+              value={locale}
+              onChange={(value) => setLocale(value)}
+              options={[
+                { value: "zh-CN", label: t("language.zhCN") },
+                { value: "en-US", label: t("language.enUS") }
+              ]}
+            />
             <Button type="primary" size="large" icon={<PlusOutlined />} onClick={() => openCreateModal(null)}>
-              新建目标
+              {t("hero.createGoal")}
             </Button>
             <Button size="large" onClick={() => openCreateModal()}>
-              新建子任务
+              {t("hero.createSubtask")}
             </Button>
           </Space>
         </section>
 
         <Row gutter={[20, 20]} className="stats-row">
           <Col xs={12} md={6}>
-            <Card><Statistic title="总任务数" value={summary?.total ?? 0} /></Card>
+            <Card><Statistic title={t("stats.total")} value={summary?.total ?? 0} /></Card>
           </Col>
           <Col xs={12} md={6}>
-            <Card><Statistic title="目标数" value={summary?.roots ?? 0} prefix={<FlagOutlined />} /></Card>
+            <Card><Statistic title={t("stats.roots")} value={summary?.roots ?? 0} prefix={<FlagOutlined />} /></Card>
           </Col>
           <Col xs={12} md={6}>
-            <Card><Statistic title="进行中" value={summary?.inProgress ?? 0} prefix={<ClockCircleOutlined />} /></Card>
+            <Card><Statistic title={t("stats.inProgress")} value={summary?.inProgress ?? 0} prefix={<ClockCircleOutlined />} /></Card>
           </Col>
           <Col xs={12} md={6}>
-            <Card><Statistic title="完成率" value={summary?.completionRate ?? 0} suffix="%" prefix={<CheckCircleOutlined />} /></Card>
+            <Card><Statistic title={t("stats.completionRate")} value={summary?.completionRate ?? 0} suffix="%" prefix={<CheckCircleOutlined />} /></Card>
           </Col>
         </Row>
 
@@ -505,15 +554,15 @@ export default function App() {
           <Col xs={24} lg={9}>
             <Card
               className="glass-card"
-              title="任务拆解树"
-              extra={<Button type="link" onClick={() => openCreateModal()}>添加</Button>}
+              title={t("tree.title")}
+              extra={<Button type="link" onClick={() => openCreateModal()}>{t("tree.add")}</Button>}
               loading={loading}
             >
               {tree.length > 0 ? (
                 <Tree
                   draggable
                   selectedKeys={selectedId ? [String(selectedId)] : []}
-                  treeData={toTreeData(tree)}
+                  treeData={toTreeData(tree, statusOptions)}
                   defaultExpandAll
                   onDrop={(info) => void handleDrop(info)}
                   onSelect={(keys) => {
@@ -522,7 +571,7 @@ export default function App() {
                   }}
                 />
               ) : (
-                <Empty description="还没有任何任务" />
+                <Empty description={t("tree.empty")} />
               )}
             </Card>
           </Col>
@@ -532,40 +581,40 @@ export default function App() {
                 <div className="detail-pane">
                   <div className="detail-pane__header">
                     <div>
-                      <Tag color={statusMeta(selectedTask.status).color}>
-                        {statusMeta(selectedTask.status).label}
+                      <Tag color={statusMeta(selectedTask.status, statusOptions).color}>
+                        {statusMeta(selectedTask.status, statusOptions).label}
                       </Tag>
                       <h2>{selectedTask.title}</h2>
-                      <p>{selectedTask.description || "这个任务还没有补充说明。"}</p>
+                      <p>{selectedTask.description || t("detail.noDescription")}</p>
                     </div>
                     <Space wrap>
                       <Button icon={<PlusOutlined />} onClick={() => openCreateModal(selectedTask.id)}>
-                        拆分子任务
+                        {t("detail.splitSubtask")}
                       </Button>
                       <Button icon={<EditOutlined />} onClick={openEditModal}>
-                        编辑
+                        {t("detail.edit")}
                       </Button>
                       <Popconfirm
-                        title="删除后会一并删除全部子任务，是否继续？"
+                        title={t("detail.deleteConfirm")}
                         onConfirm={() => void handleDelete()}
                       >
                         <Button danger icon={<DeleteOutlined />}>
-                          删除
+                          {t("common.delete")}
                         </Button>
                       </Popconfirm>
                     </Space>
                   </div>
 
                   <div className="quick-actions">
-                    <Button onClick={() => void handleQuickStatus("todo")}>标记未开始</Button>
-                    <Button onClick={() => void handleQuickStatus("in_progress")}>标记进行中</Button>
-                    <Button type="primary" onClick={() => void handleQuickStatus("done")}>标记完成</Button>
+                    <Button onClick={() => void handleQuickStatus("todo")}>{t("quick.markTodo")}</Button>
+                    <Button onClick={() => void handleQuickStatus("in_progress")}>{t("quick.markInProgress")}</Button>
+                    <Button type="primary" onClick={() => void handleQuickStatus("done")}>{t("quick.markDone")}</Button>
                   </div>
 
                   <Card className="inner-card">
                     <div className="progress-block">
                       <div>
-                        <span className="section-label">拆解进度</span>
+                        <span className="section-label">{t("detail.progress")}</span>
                         <h3>{selectedTask.progress}%</h3>
                       </div>
                       <Progress percent={selectedTask.progress} strokeColor="#1f6f78" />
@@ -574,13 +623,25 @@ export default function App() {
 
                   <Row gutter={[16, 16]}>
                     <Col xs={24} md={12}>
-                      <Card className="inner-card" title="时间信息">
-                        <p>截止时间：{selectedTask.dueDate ? dayjs(selectedTask.dueDate).format("YYYY-MM-DD HH:mm") : "未设置"}</p>
-                        <p>完成时间：{selectedTask.completedAt ? dayjs(selectedTask.completedAt).format("YYYY-MM-DD HH:mm") : "未完成"}</p>
+                      <Card className="inner-card" title={t("detail.timeInfo")}>
+                        <p>
+                          {t("detail.dueDate", {
+                            value: selectedTask.dueDate
+                              ? dayjs(selectedTask.dueDate).format("YYYY-MM-DD HH:mm")
+                              : t("detail.notSet")
+                          })}
+                        </p>
+                        <p>
+                          {t("detail.completedAt", {
+                            value: selectedTask.completedAt
+                              ? dayjs(selectedTask.completedAt).format("YYYY-MM-DD HH:mm")
+                              : t("detail.notDone")
+                          })}
+                        </p>
                       </Card>
                     </Col>
                     <Col xs={24} md={12}>
-                      <Card className="inner-card" title="属性继承">
+                      <Card className="inner-card" title={t("detail.propertyInheritance")}>
                         <div className="property-list">
                           {Object.keys(selectedTask.effectiveProperties || {}).length > 0 ? (
                             Object.entries(selectedTask.effectiveProperties).map(([key, value]) => (
@@ -590,35 +651,38 @@ export default function App() {
                               </div>
                             ))
                           ) : (
-                            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无属性" />
+                            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t("detail.noProperties")} />
                           )}
                         </div>
                       </Card>
                     </Col>
                   </Row>
 
-                  <Card className="inner-card" title="继承关系说明">
-                    <p>继承属性：{Object.keys(selectedTask.inheritedProperties || {}).length}</p>
-                    <p>自定义属性：{Object.keys(selectedTask.customProperties || {}).length}</p>
-                    <p>子任务数量：{selectedTask.children?.length ?? 0}</p>
+                  <Card className="inner-card" title={t("detail.inheritanceSummary")}>
+                    <p>{t("detail.inheritedCount", { value: Object.keys(selectedTask.inheritedProperties || {}).length })}</p>
+                    <p>{t("detail.customCount", { value: Object.keys(selectedTask.customProperties || {}).length })}</p>
+                    <p>{t("detail.childrenCount", { value: selectedTask.children?.length ?? 0 })}</p>
                   </Card>
                 </div>
               ) : (
-                <Empty description="从左侧选择一个任务查看详情" />
+                <Empty description={t("detail.empty")} />
               )}
             </Card>
           </Col>
         </Row>
-      </div>
+        </div>
 
-      <TaskModal
-        open={modalState.open}
-        mode={modalState.mode}
-        initialValues={modalState.task}
-        parentOptions={parentOptions}
-        onCancel={() => setModalState({ open: false, mode: "create", task: null })}
-        onSubmit={handleSubmit}
-      />
-    </AntApp>
+        <TaskModal
+          open={modalState.open}
+          mode={modalState.mode}
+          initialValues={modalState.task}
+          parentOptions={parentOptions}
+          statusOptions={statusOptions}
+          t={t}
+          onCancel={() => setModalState({ open: false, mode: "create", task: null })}
+          onSubmit={handleSubmit}
+        />
+      </AntApp>
+    </ConfigProvider>
   );
 }
