@@ -1,0 +1,19 @@
+{
+  "name": "get-it-done",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace server",
+    "dev:server": "npm run dev --workspace server",
+    "dev:web": "npm run dev --workspace web",
+    "build": "npm run build --workspace server && npm run build --workspace web",
+    "start": "npm run start --workspace server"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}
