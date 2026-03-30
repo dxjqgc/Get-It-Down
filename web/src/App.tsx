@@ -9,6 +9,7 @@ import {
   Button,
   Card,
   Col,
+  Dropdown,
   DatePicker,
   Empty,
   Form,
@@ -30,6 +31,7 @@ import enUS from "antd/locale/en_US";
 import {
   CheckCircleOutlined,
   ClockCircleOutlined,
+  DownOutlined,
   DownloadOutlined,
   DeleteOutlined,
   EditOutlined,
@@ -90,7 +92,10 @@ interface ApiError {
 
 interface ImportResponse {
   imported: number;
+  mode: "replace" | "append";
 }
+
+type ImportMode = "replace" | "append";
 
 function getStatusOptions(t: TranslateFn): StatusOption[] {
   return [
@@ -105,7 +110,7 @@ const EMPTY_FORM: TaskFormValues = {
   description: "",
   status: "todo",
   dueDate: null,
-  customProperties: [{ key: "", value: "" }]
+  customProperties: []
 };
 
 function statusMeta(status: TaskStatus, statusOptions: StatusOption[]): StatusOption {
@@ -151,9 +156,7 @@ function propertyArrayToObject(items: PropertyItem[]): Record<string, string> {
 
 function objectToPropertyArray(object: Record<string, string>): PropertyItem[] {
   const entries = Object.entries(object ?? {});
-  return entries.length > 0
-    ? entries.map(([key, value]) => ({ key, value }))
-    : [{ key: "", value: "" }];
+  return entries.map(([key, value]) => ({ key, value }));
 }
 
 function depthOf(id: number, nodes: TaskTreeNode[], level = 0): number {
@@ -374,6 +377,7 @@ function TaskModal({
 export default function App() {
   const [messageApi, contextHolder] = message.useMessage();
   const importInputRef = useRef<HTMLInputElement | null>(null);
+  const importModeRef = useRef<ImportMode>("replace");
   const [locale, setLocale] = useState<Locale>(() => getInitialLocale());
   const [tree, setTree] = useState<TaskTreeNode[]>([]);
   const [summary, setSummary] = useState<TaskSummary | null>(null);
@@ -441,6 +445,11 @@ export default function App() {
     importInputRef.current?.click();
   };
 
+  const handleImportAction = (mode: ImportMode): void => {
+    importModeRef.current = mode;
+    handleImportClick();
+  };
+
   const handleImportFileChange = async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -457,18 +466,24 @@ export default function App() {
           : text;
       const parsed = JSON.parse(normalizedText) as unknown;
       const normalized = normalizeImportArchive(parsed);
+      const mode = importModeRef.current;
       const confirmed = window.confirm(
-        `${t("hero.importConfirmTitle")}\n\n${t("hero.importConfirmDescription")}`
+        mode === "append"
+          ? `${t("hero.importAppendConfirmTitle")}\n\n${t("hero.importAppendConfirmDescription")}`
+          : `${t("hero.importConfirmTitle")}\n\n${t("hero.importConfirmDescription")}`
       );
       if (!confirmed) {
         return;
       }
 
-      const result = await request<ImportResponse>("/api/tasks/import", t("request.importFailed"), {
+      const result = await request<ImportResponse>(`/api/tasks/import?mode=${mode}`, t("request.importFailed"), {
         method: "POST",
         body: JSON.stringify(normalized)
       });
-      const successMessage = t("success.imported", { count: result.imported });
+      const successMessage =
+        result.mode === "append"
+          ? t("success.importedAppend", { count: result.imported })
+          : t("success.imported", { count: result.imported });
       messageApi.success(successMessage);
       window.alert(successMessage);
       await loadData();
@@ -507,8 +522,7 @@ export default function App() {
       mode: "create",
       task: {
         ...EMPTY_FORM,
-        parentId: parentId ?? undefined,
-        customProperties: [{ key: "", value: "" }]
+        parentId: parentId ?? undefined
       }
     });
   };
@@ -674,9 +688,20 @@ export default function App() {
             <Button size="large" icon={<DownloadOutlined />} onClick={() => void handleExport()}>
               {t("hero.exportJson")}
             </Button>
-            <Button size="large" icon={<UploadOutlined />} onClick={handleImportClick}>
-              {t("hero.importJson")}
-            </Button>
+            <Dropdown
+              trigger={["click"]}
+              menu={{
+                items: [
+                  { key: "replace", label: t("hero.importModeReplace") },
+                  { key: "append", label: t("hero.importModeAppend") }
+                ],
+                onClick: ({ key }) => handleImportAction(key as ImportMode)
+              }}
+            >
+              <Button size="large" icon={<UploadOutlined />}>
+                {t("hero.importJson")} <DownOutlined />
+              </Button>
+            </Dropdown>
             <Button type="primary" size="large" icon={<PlusOutlined />} onClick={() => openCreateModal(null)}>
               {t("hero.createGoal")}
             </Button>

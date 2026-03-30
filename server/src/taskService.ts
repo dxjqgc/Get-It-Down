@@ -22,6 +22,7 @@ import type {
 
 const VALID_STATUSES = new Set<TaskStatus>(["todo", "in_progress", "done"]);
 const ARCHIVE_VERSION = 1;
+type ImportMode = "replace" | "append";
 
 interface TaskImportPayload {
   id: unknown;
@@ -220,6 +221,63 @@ function validateTaskGraph(tasks: Task[]): void {
   };
 
   tasks.forEach((task) => walk(task.id));
+}
+
+function normalizeImportMode(mode: unknown): ImportMode {
+  if (mode === undefined || mode === null || mode === "replace" || mode === "overwrite") {
+    return "replace";
+  }
+  if (mode === "append") {
+    return "append";
+  }
+  throw new Error("导入模式不合法，仅支持 replace/overwrite/append");
+}
+
+function remapTasksForAppend(existingTasks: Task[], importedTasks: Task[]): Task[] {
+  if (importedTasks.length === 0) {
+    return [];
+  }
+
+  let nextId = existingTasks.reduce((max, task) => Math.max(max, task.id), 0) + 1;
+  const idMap = new Map<number, number>();
+  importedTasks.forEach((task) => {
+    idMap.set(task.id, nextId);
+    nextId += 1;
+  });
+
+  const nextSortOrderByParent = new Map<number | null, number>();
+  existingTasks.forEach((task) => {
+    const current = nextSortOrderByParent.get(task.parentId) ?? 0;
+    nextSortOrderByParent.set(task.parentId, Math.max(current, task.sortOrder + 1));
+  });
+
+  const sortedImported = [...importedTasks].sort((a, b) => {
+    const parentA = a.parentId ?? -1;
+    const parentB = b.parentId ?? -1;
+    if (parentA !== parentB) {
+      return parentA - parentB;
+    }
+    if (a.sortOrder !== b.sortOrder) {
+      return a.sortOrder - b.sortOrder;
+    }
+    return a.id - b.id;
+  });
+
+  return sortedImported.map((task) => {
+    const mappedParentId =
+      task.parentId == null
+        ? null
+        : idMap.get(task.parentId) ?? task.parentId;
+    const nextSortOrder = nextSortOrderByParent.get(mappedParentId) ?? 0;
+    nextSortOrderByParent.set(mappedParentId, nextSortOrder + 1);
+
+    return {
+      ...task,
+      id: idMap.get(task.id) as number,
+      parentId: mappedParentId,
+      sortOrder: nextSortOrder
+    };
+  });
 }
 
 function buildTree(tasks: Task[]): TaskTreeNode[] {
@@ -431,7 +489,10 @@ export function exportTaskArchive(): TaskArchive {
   };
 }
 
-export function importTaskArchive(payload: unknown): { imported: number } {
+export function importTaskArchive(
+  payload: unknown,
+  modeInput?: unknown
+): { imported: number; mode: ImportMode } {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new Error("导入内容必须是 JSON 对象");
   }
@@ -445,9 +506,20 @@ export function importTaskArchive(payload: unknown): { imported: number } {
     throw new Error(`暂不支持版本 ${String(archive.version)} 的导入文件`);
   }
 
-  const tasks = archive.tasks.map((rawTask) => normalizeTaskForImport(rawTask));
-  validateTaskGraph(tasks);
-  replaceAllTasks(tasks);
+  const importedTasks = archive.tasks.map((rawTask) => normalizeTaskForImport(rawTask));
+  validateTaskGraph(importedTasks);
 
-  return { imported: tasks.length };
+  const mode = normalizeImportMode(modeInput);
+  if (mode === "replace") {
+    replaceAllTasks(importedTasks);
+    return { imported: importedTasks.length, mode };
+  }
+
+  const existingTasks = listTasks();
+  const appendedTasks = remapTasksForAppend(existingTasks, importedTasks);
+  const mergedTasks = [...existingTasks, ...appendedTasks];
+  validateTaskGraph(mergedTasks);
+  replaceAllTasks(mergedTasks);
+
+  return { imported: appendedTasks.length, mode };
 }

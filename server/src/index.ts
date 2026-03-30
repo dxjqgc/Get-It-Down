@@ -44,7 +44,12 @@ app.get("/api/tasks/export", (_req: Request, res: Response) => {
 
 app.post("/api/tasks/import", (req: Request, res: Response) => {
   try {
-    const result = importTaskArchive(req.body);
+    const modeFromQuery = typeof req.query.mode === "string" ? req.query.mode : undefined;
+    const modeFromBody =
+      req.body && typeof req.body === "object" && !Array.isArray(req.body)
+        ? (req.body as { mode?: unknown }).mode
+        : undefined;
+    const result = importTaskArchive(req.body, modeFromQuery ?? modeFromBody);
     res.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "导入失败";
