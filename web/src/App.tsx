@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import type { Dayjs } from "dayjs";
 import dayjs from "dayjs";
 import "dayjs/locale/en";
@@ -30,16 +30,20 @@ import enUS from "antd/locale/en_US";
 import {
   CheckCircleOutlined,
   ClockCircleOutlined,
+  DownloadOutlined,
   DeleteOutlined,
   EditOutlined,
   FlagOutlined,
-  PlusOutlined
+  PlusOutlined,
+  UploadOutlined
 } from "@ant-design/icons";
 import type {
   PropertyItem,
   ReorderTaskPayload,
+  TaskArchive,
   TaskFormSubmitValues,
   TaskFormValues,
+  TaskRecord,
   TaskResponse,
   TaskStatus,
   TaskSummary,
@@ -82,6 +86,10 @@ interface TaskModalProps {
 
 interface ApiError {
   message?: string;
+}
+
+interface ImportResponse {
+  imported: number;
 }
 
 function getStatusOptions(t: TranslateFn): StatusOption[] {
@@ -198,6 +206,70 @@ async function request<T>(url: string, fallbackMessage: string, options?: Reques
   return (await response.json()) as T;
 }
 
+function exportFileName(): string {
+  return `get-it-done-export-${dayjs().format("YYYYMMDD-HHmmss")}.json`;
+}
+
+function flattenImportedTreeNodes(input: unknown, acc: unknown[] = []): unknown[] {
+  if (!Array.isArray(input)) {
+    return acc;
+  }
+
+  input.forEach((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return;
+    }
+    acc.push(item);
+    const children = (item as { children?: unknown }).children;
+    if (Array.isArray(children)) {
+      flattenImportedTreeNodes(children, acc);
+    }
+  });
+
+  return acc;
+}
+
+function normalizeImportArchive(input: unknown): TaskArchive {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new Error("error.invalidImportShape");
+  }
+
+  const obj = input as Record<string, unknown>;
+  const now = new Date().toISOString();
+  const version = typeof obj.version === "number" ? obj.version : 1;
+  const exportedAt = typeof obj.exportedAt === "string" ? obj.exportedAt : now;
+
+  if (Array.isArray(obj.tasks)) {
+    return { version, exportedAt, tasks: obj.tasks as TaskRecord[] };
+  }
+
+  const data = obj.data;
+  if (
+    data &&
+    typeof data === "object" &&
+    !Array.isArray(data) &&
+    Array.isArray((data as { tasks?: unknown }).tasks)
+  ) {
+    const dataObj = data as Record<string, unknown>;
+    return {
+      version: typeof dataObj.version === "number" ? dataObj.version : version,
+      exportedAt: typeof dataObj.exportedAt === "string" ? dataObj.exportedAt : exportedAt,
+      tasks: dataObj.tasks as TaskRecord[]
+    };
+  }
+
+  if (Array.isArray(obj.tree)) {
+    const tasks = flattenImportedTreeNodes(obj.tree) as TaskRecord[];
+    return {
+      version,
+      exportedAt,
+      tasks
+    };
+  }
+
+  throw new Error("error.invalidImportShape");
+}
+
 function TaskModal({
   open,
   mode,
@@ -301,6 +373,7 @@ function TaskModal({
 
 export default function App() {
   const [messageApi, contextHolder] = message.useMessage();
+  const importInputRef = useRef<HTMLInputElement | null>(null);
   const [locale, setLocale] = useState<Locale>(() => getInitialLocale());
   const [tree, setTree] = useState<TaskTreeNode[]>([]);
   const [summary, setSummary] = useState<TaskSummary | null>(null);
@@ -345,6 +418,78 @@ export default function App() {
   useEffect(() => {
     void loadData();
   }, [locale]);
+
+  const handleExport = async (): Promise<void> => {
+    try {
+      const archive = await request<TaskArchive>("/api/tasks/export", t("request.exportFailed"));
+      const blob = new Blob([JSON.stringify(archive, null, 2)], {
+        type: "application/json;charset=utf-8"
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = window.document.createElement("a");
+      link.href = url;
+      link.download = exportFileName();
+      link.click();
+      window.URL.revokeObjectURL(url);
+      messageApi.success(t("success.exported"));
+    } catch (error) {
+      messageApi.error(error instanceof Error ? error.message : t("request.exportFailed"));
+    }
+  };
+
+  const handleImportClick = (): void => {
+    importInputRef.current?.click();
+  };
+
+  const handleImportFileChange = async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      const normalizedText =
+        text.charCodeAt(0) === 0xfeff
+          ? text.slice(1)
+          : text;
+      const parsed = JSON.parse(normalizedText) as unknown;
+      const normalized = normalizeImportArchive(parsed);
+      const confirmed = window.confirm(
+        `${t("hero.importConfirmTitle")}\n\n${t("hero.importConfirmDescription")}`
+      );
+      if (!confirmed) {
+        return;
+      }
+
+      const result = await request<ImportResponse>("/api/tasks/import", t("request.importFailed"), {
+        method: "POST",
+        body: JSON.stringify(normalized)
+      });
+      const successMessage = t("success.imported", { count: result.imported });
+      messageApi.success(successMessage);
+      window.alert(successMessage);
+      await loadData();
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        const text = t("error.invalidImportFile");
+        messageApi.error(text);
+        window.alert(text);
+        return;
+      }
+      if (error instanceof Error && error.message === "error.invalidImportShape") {
+        const text = t("error.invalidImportShape");
+        messageApi.error(text);
+        window.alert(text);
+        return;
+      }
+      const text = error instanceof Error ? error.message : t("error.readImportFailed");
+      messageApi.error(text);
+      window.alert(text);
+    }
+  };
 
   const flatTasks = useMemo(() => flattenTree(tree, []), [tree]);
   const selectedTask = flatTasks.find((item) => item.id === selectedId) ?? null;
@@ -526,6 +671,12 @@ export default function App() {
                 { value: "en-US", label: t("language.enUS") }
               ]}
             />
+            <Button size="large" icon={<DownloadOutlined />} onClick={() => void handleExport()}>
+              {t("hero.exportJson")}
+            </Button>
+            <Button size="large" icon={<UploadOutlined />} onClick={handleImportClick}>
+              {t("hero.importJson")}
+            </Button>
             <Button type="primary" size="large" icon={<PlusOutlined />} onClick={() => openCreateModal(null)}>
               {t("hero.createGoal")}
             </Button>
@@ -533,6 +684,13 @@ export default function App() {
               {t("hero.createSubtask")}
             </Button>
           </Space>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden-file-input"
+            onChange={(event) => void handleImportFileChange(event)}
+          />
         </section>
 
         <Row gutter={[20, 20]} className="stats-row">

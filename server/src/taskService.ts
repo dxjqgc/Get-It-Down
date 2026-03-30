@@ -5,11 +5,13 @@ import {
   getTask,
   listTasks,
   listTasksByParent,
+  replaceAllTasks,
   updateTask
 } from "./taskRepository.js";
 import type {
   ReorderTaskInput,
   Task,
+  TaskArchive,
   TaskInput,
   TaskPatch,
   TaskProperties,
@@ -19,6 +21,27 @@ import type {
 } from "./types.js";
 
 const VALID_STATUSES = new Set<TaskStatus>(["todo", "in_progress", "done"]);
+const ARCHIVE_VERSION = 1;
+
+interface TaskImportPayload {
+  id: unknown;
+  parentId?: unknown;
+  title?: unknown;
+  description?: unknown;
+  status?: unknown;
+  dueDate?: unknown;
+  completedAt?: unknown;
+  customProperties?: unknown;
+  sortOrder?: unknown;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+
+interface TaskArchiveImportPayload {
+  version?: unknown;
+  exportedAt?: unknown;
+  tasks?: unknown;
+}
 
 function assertValidParent(parentId: number | null | undefined): void {
   if (parentId != null && !getTask(parentId)) {
@@ -72,6 +95,131 @@ function sanitizeProperties(input: unknown): TaskProperties {
       .map(([key, value]) => [String(key).trim(), String(value ?? "").trim()])
       .filter(([key, value]) => key && value)
   );
+}
+
+function normalizeDateTime(value: unknown, fieldName: string): string | null {
+  if (value == null) {
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw new Error(`${fieldName} 必须是字符串或 null`);
+  }
+  const text = value.trim();
+  if (!text) {
+    return null;
+  }
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`${fieldName} 不是合法时间`);
+  }
+  return date.toISOString();
+}
+
+function normalizeTaskForImport(payload: unknown): Task {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("tasks 数组中的每一项都必须是对象");
+  }
+
+  const raw = payload as TaskImportPayload;
+
+  if (!Number.isInteger(raw.id) || Number(raw.id) <= 0) {
+    throw new Error("任务 id 必须是大于 0 的整数");
+  }
+
+  if (typeof raw.title !== "string" || !raw.title.trim()) {
+    throw new Error(`任务 ${raw.id} 的标题不能为空`);
+  }
+
+  const statusRaw = raw.status ?? "todo";
+  if (typeof statusRaw !== "string" || !VALID_STATUSES.has(statusRaw as TaskStatus)) {
+    throw new Error(`任务 ${raw.id} 的状态不合法`);
+  }
+  const status = statusRaw as TaskStatus;
+
+  const dueDate = normalizeDateTime(raw.dueDate, `任务 ${raw.id} 的 dueDate`);
+  const completedAt =
+    status === "done"
+      ? normalizeDateTime(raw.completedAt, `任务 ${raw.id} 的 completedAt`) ?? new Date().toISOString()
+      : null;
+
+  let parentId: number | null = null;
+  if (raw.parentId !== null && raw.parentId !== undefined) {
+    if (typeof raw.parentId !== "number" || !Number.isInteger(raw.parentId) || raw.parentId <= 0) {
+      throw new Error(`任务 ${raw.id} 的 parentId 必须是整数或 null`);
+    }
+    parentId = raw.parentId;
+  }
+
+  const sortOrder =
+    typeof raw.sortOrder === "number" && Number.isInteger(raw.sortOrder) && raw.sortOrder >= 0
+      ? raw.sortOrder
+      : 0;
+
+  const now = new Date().toISOString();
+
+  return {
+    id: Number(raw.id),
+    parentId,
+    title: raw.title.trim(),
+    description: typeof raw.description === "string" ? raw.description.trim() : "",
+    status,
+    dueDate,
+    completedAt,
+    customProperties: sanitizeProperties(raw.customProperties),
+    sortOrder,
+    createdAt: normalizeDateTime(raw.createdAt, `任务 ${raw.id} 的 createdAt`) ?? now,
+    updatedAt: normalizeDateTime(raw.updatedAt, `任务 ${raw.id} 的 updatedAt`) ?? now
+  };
+}
+
+function validateTaskGraph(tasks: Task[]): void {
+  const byId = new Map<number, Task>();
+  tasks.forEach((task) => {
+    if (byId.has(task.id)) {
+      throw new Error(`任务 id 重复: ${task.id}`);
+    }
+    byId.set(task.id, task);
+  });
+
+  tasks.forEach((task) => {
+    if (task.parentId == null) {
+      return;
+    }
+    if (!byId.has(task.parentId)) {
+      throw new Error(`任务 ${task.id} 的父任务 ${task.parentId} 不存在`);
+    }
+    if (task.parentId === task.id) {
+      throw new Error(`任务 ${task.id} 不能把自己设为父任务`);
+    }
+  });
+
+  const childrenByParent = new Map<number, number[]>();
+  tasks.forEach((task) => {
+    if (task.parentId == null) {
+      return;
+    }
+    const children = childrenByParent.get(task.parentId) ?? [];
+    children.push(task.id);
+    childrenByParent.set(task.parentId, children);
+  });
+
+  const visited = new Set<number>();
+  const visiting = new Set<number>();
+
+  const walk = (taskId: number): void => {
+    if (visiting.has(taskId)) {
+      throw new Error("导入数据存在循环父子关系");
+    }
+    if (visited.has(taskId)) {
+      return;
+    }
+    visiting.add(taskId);
+    (childrenByParent.get(taskId) ?? []).forEach((childId) => walk(childId));
+    visiting.delete(taskId);
+    visited.add(taskId);
+  };
+
+  tasks.forEach((task) => walk(task.id));
 }
 
 function buildTree(tasks: Task[]): TaskTreeNode[] {
@@ -273,4 +421,33 @@ export function deleteTaskNode(id: number): void {
   }
 
   deleteTask(id);
+}
+
+export function exportTaskArchive(): TaskArchive {
+  return {
+    version: ARCHIVE_VERSION,
+    exportedAt: new Date().toISOString(),
+    tasks: listTasks()
+  };
+}
+
+export function importTaskArchive(payload: unknown): { imported: number } {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("导入内容必须是 JSON 对象");
+  }
+
+  const archive = payload as TaskArchiveImportPayload;
+  if (!Array.isArray(archive.tasks)) {
+    throw new Error("导入内容缺少 tasks 数组");
+  }
+
+  if (archive.version !== undefined && archive.version !== ARCHIVE_VERSION) {
+    throw new Error(`暂不支持版本 ${String(archive.version)} 的导入文件`);
+  }
+
+  const tasks = archive.tasks.map((rawTask) => normalizeTaskForImport(rawTask));
+  validateTaskGraph(tasks);
+  replaceAllTasks(tasks);
+
+  return { imported: tasks.length };
 }

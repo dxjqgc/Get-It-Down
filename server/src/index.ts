@@ -6,8 +6,10 @@ import express, { type Request, type Response } from "express";
 import {
   createTaskNode,
   deleteTaskNode,
+  exportTaskArchive,
   getTaskSummary,
   getTaskTree,
+  importTaskArchive,
   reorderTaskNode,
   updateTaskNode
 } from "./taskService.js";
@@ -23,7 +25,7 @@ dotenv.config({ path: envPath });
 const port = Number(process.env.PORT || 26666);
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 
 app.get("/api/health", (_req: Request, res: Response) => {
   res.json({ ok: true });
@@ -34,6 +36,20 @@ app.get("/api/tasks", (_req: Request, res: Response) => {
     summary: getTaskSummary(),
     tree: getTaskTree()
   });
+});
+
+app.get("/api/tasks/export", (_req: Request, res: Response) => {
+  res.json(exportTaskArchive());
+});
+
+app.post("/api/tasks/import", (req: Request, res: Response) => {
+  try {
+    const result = importTaskArchive(req.body);
+    res.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "导入失败";
+    res.status(400).json({ message });
+  }
 });
 
 app.post("/api/tasks", (req: Request<unknown, unknown, Partial<TaskInput>>, res: Response) => {

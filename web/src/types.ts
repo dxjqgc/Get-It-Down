@@ -2,7 +2,7 @@ export type TaskStatus = "todo" | "in_progress" | "done";
 
 export type TaskProperties = Record<string, string>;
 
-export interface TaskTreeNode {
+export interface TaskRecord {
   id: number;
   parentId: number | null;
   title: string;
@@ -14,6 +14,9 @@ export interface TaskTreeNode {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TaskTreeNode extends TaskRecord {
   inheritedProperties: TaskProperties;
   effectiveProperties: TaskProperties;
   progress: number;
@@ -61,4 +64,10 @@ export interface ReorderTaskPayload {
   taskId: number;
   parentId: number | null;
   index: number;
+}
+
+export interface TaskArchive {
+  version: number;
+  exportedAt: string;
+  tasks: TaskRecord[];
 }

@@ -158,3 +158,43 @@ export function applyTaskMove(updates: TaskMoveUpdate[]): void {
 
   transaction(updates);
 }
+
+export function replaceAllTasks(tasks: Task[]): void {
+  const clearAll = db.prepare("DELETE FROM tasks");
+  const insert = db.prepare(`
+    INSERT INTO tasks (
+      id,
+      parent_id,
+      title,
+      description,
+      status,
+      due_date,
+      completed_at,
+      custom_properties,
+      sort_order,
+      created_at,
+      updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const transaction = db.transaction((nextTasks: Task[]) => {
+    clearAll.run();
+    nextTasks.forEach((task) => {
+      insert.run(
+        task.id,
+        task.parentId ?? null,
+        task.title,
+        task.description ?? "",
+        task.status,
+        task.dueDate ?? null,
+        task.completedAt ?? null,
+        JSON.stringify(task.customProperties ?? {}),
+        task.sortOrder ?? 0,
+        task.createdAt,
+        task.updatedAt
+      );
+    });
+  });
+
+  transaction(tasks);
+}

@@ -59,3 +59,9 @@ export interface ReorderTaskInput {
   parentId: number | null;
   index: number;
 }
+
+export interface TaskArchive {
+  version: 1;
+  exportedAt: string;
+  tasks: Task[];
+}

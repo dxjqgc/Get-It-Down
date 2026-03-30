@@ -69,6 +69,10 @@ body {
   letter-spacing: 0.16em;
 }
 
+.hidden-file-input {
+  display: none;
+}
+
 .stats-row .ant-card {
   border-radius: 24px;
   border: none;
