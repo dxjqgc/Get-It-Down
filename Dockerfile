@@ -16,10 +16,11 @@ RUN npm run build --workspace web
 FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+ENV PORT=26666
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/server/node_modules ./server/node_modules
 COPY package.json ./
 COPY server ./server
 COPY --from=web-build /app/web/dist ./web/dist
-EXPOSE 3001
+EXPOSE 26666
 CMD ["npm", "run", "start", "--workspace", "server"]

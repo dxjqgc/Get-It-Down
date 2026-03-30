@@ -36,7 +36,7 @@ cp .env.example .env
 
 默认会显式读取项目根目录 `.env`，不是 `server/.env`。当前可配置：
 
-- `PORT`：后端服务端口，默认 `3001`
+- `PORT`：后端服务端口，默认 `26666`
 
 ### 3. 启动后端
 
@@ -44,7 +44,7 @@ cp .env.example .env
 npm run dev:server
 ```
 
-后端通过 `tsx` 直接运行 TypeScript 源码，默认地址：`http://localhost:3001`
+后端通过 `tsx` 直接运行 TypeScript 源码，默认地址：`http://localhost:26666`
 
 ### 4. 启动前端
 
@@ -68,4 +68,42 @@ npm run build
 docker compose up --build
 ```
 
-应用会通过 `http://localhost:3001` 对外提供服务，后端同时托管前端构建产物。
+应用会通过 `http://localhost:26666` 对外提供服务，后端同时托管前端构建产物。
+
+## Windows 桌面版（WebView2）
+
+项目已提供 `Web + WebView2` 桌面壳，位于 `desktop-webview2/`。
+
+### 快速启动
+
+```bash
+npm install
+npm run build
+npm run desktop:run
+```
+
+如果当前 PowerShell 路径是 `\\?\D:\...` 这种形式（Windows 会把 `npm.cmd` 的工作目录切到 `C:\Windows`），请改用：
+
+```bash
+npm --prefix D:\Project\CursorPro\Get-It-Down run desktop:run
+```
+
+桌面壳会自动：
+
+- 读取根目录 `.env` 的 `PORT`
+- 探测后端是否已运行
+- 必要时拉起 `server/dist/index.js`
+- 在 WebView2 中加载页面
+
+### 便携包（免安装 Node）
+
+```bash
+npm run desktop:portable
+```
+
+输出目录：`desktop-webview2/dist/GetItDownDesktop`
+
+便携打包下载 Node 运行时时，会自动优先尝试国内镜像并带重试。
+便携包为 `self-contained` 版本（目标机器无需安装 .NET 运行时）。
+
+详细说明见：`desktop-webview2/README.md`。

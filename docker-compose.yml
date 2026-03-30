@@ -1,7 +1,9 @@
 services:
   app:
     build: .
+    environment:
+      - PORT=${PORT:-26666}
     ports:
-      - "3001:3001"
+      - "${PORT:-26666}:${PORT:-26666}"
     volumes:
       - ./server/data:/app/server/data

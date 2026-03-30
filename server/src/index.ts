@@ -20,7 +20,7 @@ const webDist = path.resolve(currentDir, "../../web/dist");
 
 dotenv.config({ path: envPath });
 
-const port = Number(process.env.PORT || 3001);
+const port = Number(process.env.PORT || 26666);
 
 app.use(cors());
 app.use(express.json());

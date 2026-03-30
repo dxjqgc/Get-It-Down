@@ -11,7 +11,11 @@
     "dev:server": "npm run dev --workspace server",
     "dev:web": "npm run dev --workspace web",
     "build": "npm run build --workspace server && npm run build --workspace web",
-    "start": "npm run start --workspace server"
+    "start": "npm run start --workspace server",
+    "desktop:build": "node scripts/desktop-command.cjs build",
+    "desktop:run": "node scripts/desktop-command.cjs run",
+    "desktop:publish": "node scripts/desktop-command.cjs publish",
+    "desktop:portable": "node scripts/desktop-command.cjs portable"
   },
   "devDependencies": {
     "typescript": "^5.8.3"

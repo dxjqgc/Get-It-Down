@@ -4,3 +4,6 @@ dist
 server/data
 .env
 *.log
+desktop-webview2/**/bin
+desktop-webview2/**/obj
+desktop-webview2/dist
