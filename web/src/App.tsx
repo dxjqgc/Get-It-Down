@@ -154,9 +154,23 @@ function propertyArrayToObject(items: PropertyItem[]): Record<string, string> {
   }, {});
 }
 
-function objectToPropertyArray(object: Record<string, string>): PropertyItem[] {
-  const entries = Object.entries(object ?? {});
-  return entries.map(([key, value]) => ({ key, value }));
+function mergeInheritedAndCustomProperties(
+  inherited: Record<string, string>,
+  custom: Record<string, string>
+): PropertyItem[] {
+  const inheritedKeys = Object.keys(inherited ?? {});
+  const inheritedSet = new Set(inheritedKeys);
+
+  const inheritedItems = inheritedKeys.map((key) => ({
+    key,
+    value: custom?.[key] ?? ""
+  }));
+
+  const customOnlyItems = Object.entries(custom ?? {})
+    .filter(([key]) => !inheritedSet.has(key))
+    .map(([key, value]) => ({ key, value }));
+
+  return [...inheritedItems, ...customOnlyItems];
 }
 
 function depthOf(id: number, nodes: TaskTreeNode[], level = 0): number {
@@ -357,7 +371,6 @@ function TaskModal({
                   <Form.Item
                     {...field}
                     name={[field.name, "value"]}
-                    rules={[{ required: true, message: t("form.propertyValueRequired") }]}
                   >
                     <Input placeholder={t("form.propertyValue")} />
                   </Form.Item>
@@ -517,12 +530,14 @@ export default function App() {
     }));
 
   const openCreateModal = (parentId: number | null = selectedTask?.id ?? null): void => {
+    const parentTask = parentId == null ? null : flatTasks.find((item) => item.id === parentId) ?? null;
     setModalState({
       open: true,
       mode: "create",
       task: {
         ...EMPTY_FORM,
-        parentId: parentId ?? undefined
+        parentId: parentId ?? undefined,
+        customProperties: mergeInheritedAndCustomProperties(parentTask?.effectiveProperties ?? {}, {})
       }
     });
   };
@@ -542,7 +557,10 @@ export default function App() {
         description: selectedTask.description,
         status: selectedTask.status,
         dueDate: selectedTask.dueDate,
-        customProperties: objectToPropertyArray(selectedTask.customProperties)
+        customProperties: mergeInheritedAndCustomProperties(
+          selectedTask.inheritedProperties ?? {},
+          selectedTask.customProperties ?? {}
+        )
       }
     });
   };

@@ -309,13 +309,16 @@ function buildTree(tasks: Task[]): TaskTreeNode[] {
   };
   roots.forEach(sortChildren);
 
+  const inheritedKeysOnly = (properties: TaskProperties): TaskProperties =>
+    Object.fromEntries(Object.keys(properties).map((key) => [key, ""]));
+
   const decorate = (
     node: TaskTreeNode,
     parentProperties: TaskProperties = {}
   ): TaskTreeNode => {
-    node.inheritedProperties = parentProperties;
+    node.inheritedProperties = inheritedKeysOnly(parentProperties);
     node.effectiveProperties = {
-      ...parentProperties,
+      ...node.inheritedProperties,
       ...node.customProperties
     };
 
