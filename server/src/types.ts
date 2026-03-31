@@ -8,6 +8,7 @@ export interface Task {
   title: string;
   description: string;
   status: TaskStatus;
+  isImportant: boolean;
   dueDate: string | null;
   completedAt: string | null;
   customProperties: TaskProperties;
@@ -37,6 +38,7 @@ export interface TaskInput {
   title: string;
   description?: string;
   status?: TaskStatus;
+  isImportant?: boolean;
   dueDate?: string | null;
   completedAt?: string | null;
   customProperties?: TaskProperties;
@@ -48,6 +50,7 @@ export interface TaskPatch {
   title?: string;
   description?: string;
   status?: TaskStatus;
+  isImportant?: boolean;
   dueDate?: string | null;
   completedAt?: string | null;
   customProperties?: TaskProperties;

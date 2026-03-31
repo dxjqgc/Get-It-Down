@@ -30,6 +30,7 @@ interface TaskImportPayload {
   title?: unknown;
   description?: unknown;
   status?: unknown;
+  isImportant?: unknown;
   dueDate?: unknown;
   completedAt?: unknown;
   customProperties?: unknown;
@@ -142,6 +143,8 @@ function normalizeTaskForImport(payload: unknown): Task {
     status === "done"
       ? normalizeDateTime(raw.completedAt, `任务 ${raw.id} 的 completedAt`) ?? new Date().toISOString()
       : null;
+  const isImportant =
+    raw.isImportant === undefined ? false : Boolean(raw.isImportant);
 
   let parentId: number | null = null;
   if (raw.parentId !== null && raw.parentId !== undefined) {
@@ -164,6 +167,7 @@ function normalizeTaskForImport(payload: unknown): Task {
     title: raw.title.trim(),
     description: typeof raw.description === "string" ? raw.description.trim() : "",
     status,
+    isImportant,
     dueDate,
     completedAt,
     customProperties: sanitizeProperties(raw.customProperties),
@@ -380,6 +384,7 @@ export function createTaskNode(payload: Partial<TaskInput>): Task {
     title: payload.title.trim(),
     description: payload.description?.trim() ?? "",
     status: payload.status ?? "todo",
+    isImportant: payload.isImportant === true,
     dueDate: payload.dueDate ?? null,
     completedAt,
     customProperties: sanitizeProperties(payload.customProperties),
@@ -416,6 +421,10 @@ export function updateTaskNode(id: number, payload: TaskPatch): Task | null {
         ? existing.description
         : payload.description.trim(),
     status: nextStatus,
+    isImportant:
+      payload.isImportant === undefined
+        ? existing.isImportant
+        : payload.isImportant,
     dueDate: payload.dueDate === undefined ? existing.dueDate : payload.dueDate,
     completedAt:
       nextStatus === "done"

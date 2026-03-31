@@ -8,6 +8,7 @@ interface TaskRow {
   title: string;
   description: string;
   status: Task["status"];
+  is_important: number;
   due_date: string | null;
   completed_at: string | null;
   custom_properties: string;
@@ -23,6 +24,7 @@ function parseTask(row: TaskRow): Task {
     title: row.title,
     description: row.description,
     status: row.status,
+    isImportant: row.is_important === 1,
     dueDate: row.due_date,
     completedAt: row.completed_at,
     customProperties: JSON.parse(row.custom_properties || "{}") as Task["customProperties"],
@@ -66,19 +68,21 @@ export function createTask(input: TaskInput): Task {
         title,
         description,
         status,
+        is_important,
         due_date,
         completed_at,
         custom_properties,
         sort_order,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .run(
       input.parentId ?? null,
       input.title,
       input.description ?? "",
       input.status ?? "todo",
+      input.isImportant ? 1 : 0,
       input.dueDate ?? null,
       input.completedAt ?? null,
       JSON.stringify(input.customProperties ?? {}),
@@ -108,6 +112,7 @@ export function updateTask(id: number, patch: TaskPatch): Task | null {
         title = ?,
         description = ?,
         status = ?,
+        is_important = ?,
         due_date = ?,
         completed_at = ?,
         custom_properties = ?,
@@ -119,6 +124,7 @@ export function updateTask(id: number, patch: TaskPatch): Task | null {
     next.title,
     next.description ?? "",
     next.status,
+    next.isImportant ? 1 : 0,
     next.dueDate ?? null,
     next.completedAt ?? null,
     JSON.stringify(next.customProperties ?? {}),
@@ -168,13 +174,14 @@ export function replaceAllTasks(tasks: Task[]): void {
       title,
       description,
       status,
+      is_important,
       due_date,
       completed_at,
       custom_properties,
       sort_order,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const transaction = db.transaction((nextTasks: Task[]) => {
@@ -186,6 +193,7 @@ export function replaceAllTasks(tasks: Task[]): void {
         task.title,
         task.description ?? "",
         task.status,
+        task.isImportant ? 1 : 0,
         task.dueDate ?? null,
         task.completedAt ?? null,
         JSON.stringify(task.customProperties ?? {}),

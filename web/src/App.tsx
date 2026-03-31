@@ -22,6 +22,7 @@ import {
   Select,
   Space,
   Statistic,
+  Switch,
   Tag,
   Tree,
   ConfigProvider
@@ -109,6 +110,7 @@ const EMPTY_FORM: TaskFormValues = {
   title: "",
   description: "",
   status: "todo",
+  isImportant: false,
   dueDate: null,
   customProperties: []
 };
@@ -130,7 +132,12 @@ function toTreeData(nodes: TaskTreeNode[], statusOptions: StatusOption[]): TreeD
     key: String(node.id),
     title: (
       <div className="tree-node">
-        <span className="tree-node__title">{node.title}</span>
+        <span className="tree-node__title-wrap">
+          {node.isImportant && node.status !== "done" ? (
+            <span className="tree-node__focus-dot" aria-label="important task marker" />
+          ) : null}
+          <span className="tree-node__title">{node.title}</span>
+        </span>
         <span className="tree-node__meta">
           <Tag color={statusMeta(node.status, statusOptions).color}>
             {statusMeta(node.status, statusOptions).label}
@@ -326,6 +333,7 @@ function TaskModal({
             title: values.title,
             description: values.description,
             status: values.status,
+            isImportant: values.isImportant ?? false,
             dueDate: values.dueDate ? values.dueDate.toISOString() : null,
             customProperties: propertyArrayToObject(values.customProperties || [])
           })
@@ -343,6 +351,9 @@ function TaskModal({
         </Form.Item>
         <Form.Item name="status" label={t("form.status")}>
           <Select options={statusOptions.map(({ value, label }) => ({ value, label }))} />
+        </Form.Item>
+        <Form.Item name="isImportant" label={t("form.isImportant")} valuePropName="checked">
+          <Switch />
         </Form.Item>
         <Form.Item name="dueDate" label={t("form.dueDate")}>
           <DatePicker showTime style={{ width: "100%" }} />
@@ -537,6 +548,7 @@ export default function App() {
       task: {
         ...EMPTY_FORM,
         parentId: parentId ?? undefined,
+        isImportant: false,
         customProperties: mergeInheritedAndCustomProperties(parentTask?.effectiveProperties ?? {}, {})
       }
     });
@@ -556,6 +568,7 @@ export default function App() {
         title: selectedTask.title,
         description: selectedTask.description,
         status: selectedTask.status,
+        isImportant: selectedTask.isImportant,
         dueDate: selectedTask.dueDate,
         customProperties: mergeInheritedAndCustomProperties(
           selectedTask.inheritedProperties ?? {},
@@ -613,6 +626,23 @@ export default function App() {
         body: JSON.stringify({ status })
       });
       messageApi.success(t("success.statusUpdated"));
+      await loadData();
+    } catch (error) {
+      messageApi.error(error instanceof Error ? error.message : t("request.updateFailed"));
+    }
+  };
+
+  const handleQuickImportant = async (isImportant: boolean): Promise<void> => {
+    if (!selectedTask) {
+      return;
+    }
+
+    try {
+      await request(`/api/tasks/${selectedTask.id}`, t("request.failed"), {
+        method: "PUT",
+        body: JSON.stringify({ isImportant })
+      });
+      messageApi.success(t("success.updated"));
       await loadData();
     } catch (error) {
       messageApi.error(error instanceof Error ? error.message : t("request.updateFailed"));
@@ -822,6 +852,12 @@ export default function App() {
                       <Button onClick={() => void handleQuickStatus("todo")}>{t("quick.markTodo")}</Button>
                       <Button onClick={() => void handleQuickStatus("in_progress")}>{t("quick.markInProgress")}</Button>
                       <Button type="primary" onClick={() => void handleQuickStatus("done")}>{t("quick.markDone")}</Button>
+                      <Button
+                        danger={selectedTask.isImportant && selectedTask.status !== "done"}
+                        onClick={() => void handleQuickImportant(!selectedTask.isImportant)}
+                      >
+                        {selectedTask.isImportant ? t("quick.unmarkImportant") : t("quick.markImportant")}
+                      </Button>
                     </div>
 
                     <Row gutter={[12, 12]} className="detail-meta-grid">

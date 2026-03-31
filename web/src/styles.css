@@ -148,6 +148,20 @@ body {
   color: #193732;
 }
 
+.tree-node__title-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tree-node__focus-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #e03131;
+  box-shadow: 0 0 0 5px rgba(224, 49, 49, 0.18);
+}
+
 .tree-node__meta {
   display: flex;
   align-items: center;

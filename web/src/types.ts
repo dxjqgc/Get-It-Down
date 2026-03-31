@@ -8,6 +8,7 @@ export interface TaskRecord {
   title: string;
   description: string;
   status: TaskStatus;
+  isImportant: boolean;
   dueDate: string | null;
   completedAt: string | null;
   customProperties: TaskProperties;
@@ -47,6 +48,7 @@ export interface TaskFormValues {
   title: string;
   description: string;
   status: TaskStatus;
+  isImportant: boolean;
   dueDate: string | null;
   customProperties: PropertyItem[];
 }
@@ -56,6 +58,7 @@ export interface TaskFormSubmitValues {
   title: string;
   description: string;
   status: TaskStatus;
+  isImportant: boolean;
   dueDate: string | null;
   customProperties: Record<string, string>;
 }

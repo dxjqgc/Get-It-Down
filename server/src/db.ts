@@ -17,6 +17,7 @@ db.exec(`
     title TEXT NOT NULL,
     description TEXT DEFAULT '',
     status TEXT NOT NULL DEFAULT 'todo',
+    is_important INTEGER NOT NULL DEFAULT 0,
     due_date TEXT,
     completed_at TEXT,
     custom_properties TEXT NOT NULL DEFAULT '{}',
@@ -25,6 +26,12 @@ db.exec(`
     updated_at TEXT NOT NULL
   );
 `);
+
+const columns = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
+const hasImportantColumn = columns.some((column) => column.name === "is_important");
+if (!hasImportantColumn) {
+  db.exec("ALTER TABLE tasks ADD COLUMN is_important INTEGER NOT NULL DEFAULT 0");
+}
 
 const row = db.prepare("SELECT COUNT(*) AS count FROM tasks").get() as { count: number };
 
@@ -36,6 +43,7 @@ if (row.count === 0) {
       title,
       description,
       status,
+      is_important,
       due_date,
       completed_at,
       custom_properties,
@@ -47,6 +55,7 @@ if (row.count === 0) {
       @title,
       @description,
       @status,
+      @is_important,
       @due_date,
       @completed_at,
       @custom_properties,
@@ -61,6 +70,7 @@ if (row.count === 0) {
     title: "学习英语",
     description: "把英语学习目标拆解成可以执行的具体任务。",
     status: "in_progress",
+    is_important: 0,
     due_date: null,
     completed_at: null,
     custom_properties: JSON.stringify({
@@ -77,6 +87,7 @@ if (row.count === 0) {
     title: "背单词",
     description: "每天完成词汇积累。",
     status: "todo",
+    is_important: 1,
     due_date: null,
     completed_at: null,
     custom_properties: JSON.stringify({
@@ -92,6 +103,7 @@ if (row.count === 0) {
     title: "听英语",
     description: "通过播客和视频提升输入量。",
     status: "todo",
+    is_important: 0,
     due_date: null,
     completed_at: null,
     custom_properties: JSON.stringify({
