@@ -12,12 +12,46 @@ interface TaskRow {
   due_date: string | null;
   completed_at: string | null;
   custom_properties: string;
+  inherited_property_keys: string;
   sort_order: number;
   created_at: string;
   updated_at: string;
 }
 
 function parseTask(row: TaskRow): Task {
+  const rawCustomProperties = JSON.parse(row.custom_properties || "{}") as Record<string, unknown>;
+  const normalizedCustomProperties: Task["customProperties"] = Object.fromEntries(
+    Object.entries(rawCustomProperties).map(([key, value]) => {
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        const item = value as { value?: unknown; inheritable?: unknown };
+        return [
+          key,
+          {
+            value: String(item.value ?? ""),
+            inheritable: Boolean(item.inheritable)
+          }
+        ];
+      }
+      return [
+        key,
+        {
+          value: String(value ?? ""),
+          inheritable: false
+        }
+      ];
+    })
+  );
+
+  let inheritedPropertyKeys: string[] = [];
+  try {
+    const parsed = JSON.parse(row.inherited_property_keys || "[]") as unknown;
+    if (Array.isArray(parsed)) {
+      inheritedPropertyKeys = parsed.map((item) => String(item));
+    }
+  } catch {
+    inheritedPropertyKeys = [];
+  }
+
   return {
     id: row.id,
     parentId: row.parent_id,
@@ -27,7 +61,8 @@ function parseTask(row: TaskRow): Task {
     isImportant: row.is_important === 1,
     dueDate: row.due_date,
     completedAt: row.completed_at,
-    customProperties: JSON.parse(row.custom_properties || "{}") as Task["customProperties"],
+    customProperties: normalizedCustomProperties,
+    inheritedPropertyKeys,
     sortOrder: row.sort_order,
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -72,6 +107,7 @@ export function createTask(input: TaskInput): Task {
         due_date,
         completed_at,
         custom_properties,
+        inherited_property_keys,
         sort_order,
         created_at,
         updated_at
@@ -86,6 +122,7 @@ export function createTask(input: TaskInput): Task {
       input.dueDate ?? null,
       input.completedAt ?? null,
       JSON.stringify(input.customProperties ?? {}),
+      JSON.stringify(input.inheritedPropertyKeys ?? []),
       input.sortOrder ?? 0,
       now,
       now
@@ -116,6 +153,7 @@ export function updateTask(id: number, patch: TaskPatch): Task | null {
         due_date = ?,
         completed_at = ?,
         custom_properties = ?,
+        inherited_property_keys = ?,
         sort_order = ?,
         updated_at = ?
     WHERE id = ?
@@ -128,6 +166,7 @@ export function updateTask(id: number, patch: TaskPatch): Task | null {
     next.dueDate ?? null,
     next.completedAt ?? null,
     JSON.stringify(next.customProperties ?? {}),
+    JSON.stringify(next.inheritedPropertyKeys ?? []),
     next.sortOrder ?? 0,
     new Date().toISOString(),
     id
@@ -178,6 +217,7 @@ export function replaceAllTasks(tasks: Task[]): void {
       due_date,
       completed_at,
       custom_properties,
+      inherited_property_keys,
       sort_order,
       created_at,
       updated_at
@@ -197,6 +237,7 @@ export function replaceAllTasks(tasks: Task[]): void {
         task.dueDate ?? null,
         task.completedAt ?? null,
         JSON.stringify(task.customProperties ?? {}),
+        JSON.stringify(task.inheritedPropertyKeys ?? []),
         task.sortOrder ?? 0,
         task.createdAt,
         task.updatedAt

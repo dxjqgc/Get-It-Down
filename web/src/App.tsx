@@ -68,6 +68,11 @@ interface ParentOption {
   label: string;
 }
 
+interface InheritableOption {
+  value: string;
+  label: string;
+}
+
 interface TaskModalState {
   open: boolean;
   mode: "create" | "edit";
@@ -81,6 +86,7 @@ interface TaskModalProps {
   mode: "create" | "edit";
   initialValues: (TaskFormValues & { id?: number }) | null;
   parentOptions: ParentOption[];
+  inheritableOptionsByParent: Record<string, InheritableOption[]>;
   statusOptions: StatusOption[];
   t: TranslateFn;
   onCancel: () => void;
@@ -112,7 +118,8 @@ const EMPTY_FORM: TaskFormValues = {
   status: "todo",
   isImportant: false,
   dueDate: null,
-  customProperties: []
+  customProperties: [],
+  inheritedPropertyKeys: []
 };
 
 function statusMeta(status: TaskStatus, statusOptions: StatusOption[]): StatusOption {
@@ -150,34 +157,26 @@ function toTreeData(nodes: TaskTreeNode[], statusOptions: StatusOption[]): TreeD
   }));
 }
 
-function propertyArrayToObject(items: PropertyItem[]): Record<string, string> {
-  return items.reduce<Record<string, string>>((acc, item) => {
+function propertyArrayToObject(items: PropertyItem[]): TaskFormSubmitValues["customProperties"] {
+  return items.reduce<TaskFormSubmitValues["customProperties"]>((acc, item) => {
     const key = item.key?.trim();
     const value = item.value?.trim();
     if (key) {
-      acc[key] = value ?? "";
+      acc[key] = {
+        value: value ?? "",
+        inheritable: Boolean(item.inheritable)
+      };
     }
     return acc;
   }, {});
 }
 
-function mergeInheritedAndCustomProperties(
-  inherited: Record<string, string>,
-  custom: Record<string, string>
-): PropertyItem[] {
-  const inheritedKeys = Object.keys(inherited ?? {});
-  const inheritedSet = new Set(inheritedKeys);
-
-  const inheritedItems = inheritedKeys.map((key) => ({
+function customPropertiesToItems(custom: TaskTreeNode["customProperties"]): PropertyItem[] {
+  return Object.entries(custom ?? {}).map(([key, property]) => ({
     key,
-    value: custom?.[key] ?? ""
+    value: property.value ?? "",
+    inheritable: Boolean(property.inheritable)
   }));
-
-  const customOnlyItems = Object.entries(custom ?? {})
-    .filter(([key]) => !inheritedSet.has(key))
-    .map(([key, value]) => ({ key, value }));
-
-  return [...inheritedItems, ...customOnlyItems];
 }
 
 function depthOf(id: number, nodes: TaskTreeNode[], level = 0): number {
@@ -299,12 +298,17 @@ function TaskModal({
   mode,
   initialValues,
   parentOptions,
+  inheritableOptionsByParent,
   statusOptions,
   t,
   onCancel,
   onSubmit
 }: TaskModalProps) {
   const [form] = Form.useForm<TaskModalFormValues>();
+  const watchedParentId = Form.useWatch("parentId", form);
+  const selectedParentKey =
+    watchedParentId === undefined || watchedParentId === null ? "" : String(watchedParentId);
+  const selectedInheritableOptions = inheritableOptionsByParent[selectedParentKey] ?? [];
 
   useEffect(() => {
     form.setFieldsValue({
@@ -335,7 +339,8 @@ function TaskModal({
             status: values.status,
             isImportant: values.isImportant ?? false,
             dueDate: values.dueDate ? values.dueDate.toISOString() : null,
-            customProperties: propertyArrayToObject(values.customProperties || [])
+            customProperties: propertyArrayToObject(values.customProperties || []),
+            inheritedPropertyKeys: values.inheritedPropertyKeys ?? []
           })
         }
       >
@@ -349,6 +354,16 @@ function TaskModal({
         <Form.Item name="parentId" label={t("form.parentTask")}>
           <Select allowClear placeholder={t("form.parentTaskPlaceholder")} options={parentOptions} />
         </Form.Item>
+        {selectedInheritableOptions.length > 0 ? (
+          <Form.Item name="inheritedPropertyKeys" label={t("form.inheritedPropertySelection")}>
+            <Select
+              mode="multiple"
+              allowClear
+              placeholder={t("form.inheritedPropertySelectionPlaceholder")}
+              options={selectedInheritableOptions}
+            />
+          </Form.Item>
+        ) : null}
         <Form.Item name="status" label={t("form.status")}>
           <Select options={statusOptions.map(({ value, label }) => ({ value, label }))} />
         </Form.Item>
@@ -366,7 +381,7 @@ function TaskModal({
             <div className="property-editor">
               <div className="property-editor__header">
                 <span>{t("form.customProperties")}</span>
-                <Button size="small" onClick={() => add({ key: "", value: "" })}>
+                <Button size="small" onClick={() => add({ key: "", value: "", inheritable: false })}>
                   {t("form.addProperty")}
                 </Button>
               </div>
@@ -384,6 +399,14 @@ function TaskModal({
                     name={[field.name, "value"]}
                   >
                     <Input placeholder={t("form.propertyValue")} />
+                  </Form.Item>
+                  <Form.Item
+                    {...field}
+                    name={[field.name, "inheritable"]}
+                    valuePropName="checked"
+                    initialValue={false}
+                  >
+                    <Switch size="small" checkedChildren={t("form.inheritable")} unCheckedChildren={t("form.nonInheritable")} />
                   </Form.Item>
                   <Button danger onClick={() => remove(field.name)}>
                     {t("common.delete")}
@@ -540,6 +563,17 @@ export default function App() {
       label: `${"· ".repeat(depthOf(item.id, tree))}${item.title}`
     }));
 
+  const inheritableOptionsByParent = useMemo<Record<string, InheritableOption[]>>(
+    () =>
+      flatTasks.reduce<Record<string, InheritableOption[]>>((acc, task) => {
+        acc[String(task.id)] = Object.entries(task.effectiveProperties ?? {})
+          .filter(([, property]) => property.inheritable)
+          .map(([key]) => ({ value: key, label: key }));
+        return acc;
+      }, {}),
+    [flatTasks]
+  );
+
   const openCreateModal = (parentId: number | null = selectedTask?.id ?? null): void => {
     const parentTask = parentId == null ? null : flatTasks.find((item) => item.id === parentId) ?? null;
     setModalState({
@@ -549,7 +583,10 @@ export default function App() {
         ...EMPTY_FORM,
         parentId: parentId ?? undefined,
         isImportant: false,
-        customProperties: mergeInheritedAndCustomProperties(parentTask?.effectiveProperties ?? {}, {})
+        customProperties: [],
+        inheritedPropertyKeys: Object.entries(parentTask?.effectiveProperties ?? {})
+          .filter(([, property]) => property.inheritable)
+          .map(([key]) => key)
       }
     });
   };
@@ -570,10 +607,8 @@ export default function App() {
         status: selectedTask.status,
         isImportant: selectedTask.isImportant,
         dueDate: selectedTask.dueDate,
-        customProperties: mergeInheritedAndCustomProperties(
-          selectedTask.inheritedProperties ?? {},
-          selectedTask.customProperties ?? {}
-        )
+        customProperties: customPropertiesToItems(selectedTask.customProperties ?? {}),
+        inheritedPropertyKeys: selectedTask.inheritedPropertyKeys ?? []
       }
     });
   };
@@ -839,7 +874,7 @@ export default function App() {
                           Object.entries(selectedTask.effectiveProperties).map(([key, value]) => (
                             <div className="property-chip property-chip--emphasis" key={key}>
                               <span>{key}</span>
-                              <strong>{value}</strong>
+                              <strong>{value.value}</strong>
                             </div>
                           ))
                         ) : (
@@ -913,6 +948,7 @@ export default function App() {
           mode={modalState.mode}
           initialValues={modalState.task}
           parentOptions={parentOptions}
+          inheritableOptionsByParent={inheritableOptionsByParent}
           statusOptions={statusOptions}
           t={t}
           onCancel={() => setModalState({ open: false, mode: "create", task: null })}

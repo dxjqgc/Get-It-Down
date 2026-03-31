@@ -21,6 +21,7 @@ db.exec(`
     due_date TEXT,
     completed_at TEXT,
     custom_properties TEXT NOT NULL DEFAULT '{}',
+    inherited_property_keys TEXT NOT NULL DEFAULT '[]',
     sort_order INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -31,6 +32,13 @@ const columns = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }
 const hasImportantColumn = columns.some((column) => column.name === "is_important");
 if (!hasImportantColumn) {
   db.exec("ALTER TABLE tasks ADD COLUMN is_important INTEGER NOT NULL DEFAULT 0");
+}
+
+const hasInheritedPropertyKeysColumn = columns.some(
+  (column) => column.name === "inherited_property_keys"
+);
+if (!hasInheritedPropertyKeysColumn) {
+  db.exec("ALTER TABLE tasks ADD COLUMN inherited_property_keys TEXT NOT NULL DEFAULT '[]'");
 }
 
 const row = db.prepare("SELECT COUNT(*) AS count FROM tasks").get() as { count: number };
@@ -47,6 +55,7 @@ if (row.count === 0) {
       due_date,
       completed_at,
       custom_properties,
+      inherited_property_keys,
       sort_order,
       created_at,
       updated_at
@@ -59,6 +68,7 @@ if (row.count === 0) {
       @due_date,
       @completed_at,
       @custom_properties,
+      @inherited_property_keys,
       @sort_order,
       @created_at,
       @updated_at
@@ -74,9 +84,10 @@ if (row.count === 0) {
     due_date: null,
     completed_at: null,
     custom_properties: JSON.stringify({
-      学习周期: "90天",
-      每周投入: "6小时"
+      学习周期: { value: "90天", inheritable: true },
+      每周投入: { value: "6小时", inheritable: true }
     }),
+    inherited_property_keys: JSON.stringify([]),
     sort_order: 0,
     created_at: now,
     updated_at: now
@@ -91,8 +102,9 @@ if (row.count === 0) {
     due_date: null,
     completed_at: null,
     custom_properties: JSON.stringify({
-      背诵方式: "Anki"
+      背诵方式: { value: "Anki", inheritable: false }
     }),
+    inherited_property_keys: JSON.stringify(["学习周期"]),
     sort_order: 0,
     created_at: now,
     updated_at: now
@@ -107,8 +119,9 @@ if (row.count === 0) {
     due_date: null,
     completed_at: null,
     custom_properties: JSON.stringify({
-      每日时长: "30分钟"
+      每日时长: { value: "30分钟", inheritable: false }
     }),
+    inherited_property_keys: JSON.stringify(["每周投入"]),
     sort_order: 1,
     created_at: now,
     updated_at: now

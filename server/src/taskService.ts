@@ -15,6 +15,7 @@ import type {
   TaskInput,
   TaskPatch,
   TaskProperties,
+  TaskProperty,
   TaskStatus,
   TaskSummary,
   TaskTreeNode
@@ -34,6 +35,7 @@ interface TaskImportPayload {
   dueDate?: unknown;
   completedAt?: unknown;
   customProperties?: unknown;
+  inheritedPropertyKeys?: unknown;
   sortOrder?: unknown;
   createdAt?: unknown;
   updatedAt?: unknown;
@@ -94,9 +96,100 @@ function sanitizeProperties(input: unknown): TaskProperties {
 
   return Object.fromEntries(
     Object.entries(input)
-      .map(([key, value]) => [String(key).trim(), String(value ?? "").trim()])
-      .filter(([key]) => key)
+      .map(([key, value]) => {
+        const trimmedKey = String(key).trim();
+        if (!trimmedKey) {
+          return null;
+        }
+        if (value && typeof value === "object" && !Array.isArray(value)) {
+          const item = value as { value?: unknown; inheritable?: unknown };
+          return [
+            trimmedKey,
+            {
+              value: String(item.value ?? "").trim(),
+              inheritable: Boolean(item.inheritable)
+            } satisfies TaskProperty
+          ] as const;
+        }
+        return [
+          trimmedKey,
+          {
+            value: String(value ?? "").trim(),
+            inheritable: false
+          } satisfies TaskProperty
+        ] as const;
+      })
+      .filter((entry): entry is readonly [string, TaskProperty] => entry !== null)
   );
+}
+
+function sanitizeInheritedPropertyKeys(input: unknown): string[] {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+  return Array.from(
+    new Set(
+      input
+        .map((item) => String(item).trim())
+        .filter((item) => item.length > 0)
+    )
+  );
+}
+
+function availableInheritableFromEffective(properties: TaskProperties): Set<string> {
+  return new Set(
+    Object.entries(properties)
+      .filter(([, item]) => item.inheritable)
+      .map(([key]) => key)
+  );
+}
+
+function syncInheritedPropertyKeysWithTree(): void {
+  const tasks = listTasks();
+  if (tasks.length === 0) {
+    return;
+  }
+
+  const byParent = new Map<number | null, Task[]>();
+  tasks.forEach((task) => {
+    const siblings = byParent.get(task.parentId) ?? [];
+    siblings.push(task);
+    byParent.set(task.parentId, siblings);
+  });
+  byParent.forEach((entries) => {
+    entries.sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
+  });
+
+  const walk = (task: Task, inheritedFromParent: TaskProperties): void => {
+    const parentInheritableKeys = availableInheritableFromEffective(inheritedFromParent);
+    const sanitizedSelectedKeys =
+      task.parentId == null
+        ? []
+        : task.inheritedPropertyKeys.filter((key) => parentInheritableKeys.has(key));
+
+    if (
+      sanitizedSelectedKeys.length !== task.inheritedPropertyKeys.length ||
+      sanitizedSelectedKeys.some((key, index) => key !== task.inheritedPropertyKeys[index])
+    ) {
+      updateTask(task.id, { inheritedPropertyKeys: sanitizedSelectedKeys });
+      task.inheritedPropertyKeys = sanitizedSelectedKeys;
+    }
+
+    const inheritedSelected: TaskProperties = Object.fromEntries(
+      sanitizedSelectedKeys
+        .filter((key) => key in inheritedFromParent)
+        .map((key) => [key, inheritedFromParent[key] as TaskProperty])
+    );
+
+    const effective: TaskProperties = {
+      ...inheritedSelected,
+      ...task.customProperties
+    };
+
+    (byParent.get(task.id) ?? []).forEach((child) => walk(child, effective));
+  };
+
+  (byParent.get(null) ?? []).forEach((root) => walk(root, {}));
 }
 
 function normalizeDateTime(value: unknown, fieldName: string): string | null {
@@ -171,6 +264,7 @@ function normalizeTaskForImport(payload: unknown): Task {
     dueDate,
     completedAt,
     customProperties: sanitizeProperties(raw.customProperties),
+    inheritedPropertyKeys: sanitizeInheritedPropertyKeys(raw.inheritedPropertyKeys),
     sortOrder,
     createdAt: normalizeDateTime(raw.createdAt, `任务 ${raw.id} 的 createdAt`) ?? now,
     updatedAt: normalizeDateTime(raw.updatedAt, `任务 ${raw.id} 的 updatedAt`) ?? now
@@ -313,14 +407,19 @@ function buildTree(tasks: Task[]): TaskTreeNode[] {
   };
   roots.forEach(sortChildren);
 
-  const inheritedKeysOnly = (properties: TaskProperties): TaskProperties =>
-    Object.fromEntries(Object.keys(properties).map((key) => [key, ""]));
-
   const decorate = (
     node: TaskTreeNode,
     parentProperties: TaskProperties = {}
   ): TaskTreeNode => {
-    node.inheritedProperties = inheritedKeysOnly(parentProperties);
+    const parentInheritableKeys = availableInheritableFromEffective(parentProperties);
+    const selectedInheritedKeys = node.inheritedPropertyKeys.filter((key) =>
+      parentInheritableKeys.has(key)
+    );
+    node.inheritedProperties = Object.fromEntries(
+      selectedInheritedKeys
+        .filter((key) => key in parentProperties)
+        .map((key) => [key, parentProperties[key] as TaskProperty])
+    );
     node.effectiveProperties = {
       ...node.inheritedProperties,
       ...node.customProperties
@@ -379,7 +478,7 @@ export function createTaskNode(payload: Partial<TaskInput>): Task {
       ? payload.completedAt || new Date().toISOString()
       : null;
 
-  return createTask({
+  const created = createTask({
     parentId: payload.parentId ?? null,
     title: payload.title.trim(),
     description: payload.description?.trim() ?? "",
@@ -388,6 +487,7 @@ export function createTaskNode(payload: Partial<TaskInput>): Task {
     dueDate: payload.dueDate ?? null,
     completedAt,
     customProperties: sanitizeProperties(payload.customProperties),
+    inheritedPropertyKeys: sanitizeInheritedPropertyKeys(payload.inheritedPropertyKeys),
     sortOrder:
       typeof payload.sortOrder === "number" &&
       Number.isInteger(payload.sortOrder) &&
@@ -395,6 +495,8 @@ export function createTaskNode(payload: Partial<TaskInput>): Task {
         ? payload.sortOrder
         : nextSortOrder(payload.parentId ?? null)
   });
+  syncInheritedPropertyKeysWithTree();
+  return created;
 }
 
 export function updateTaskNode(id: number, payload: TaskPatch): Task | null {
@@ -412,7 +514,7 @@ export function updateTaskNode(id: number, payload: TaskPatch): Task | null {
 
   const nextStatus = payload.status ?? existing.status;
 
-  return updateTask(id, {
+  const updated = updateTask(id, {
     parentId:
       payload.parentId === undefined ? existing.parentId : payload.parentId,
     title: payload.title?.trim() ?? existing.title,
@@ -434,11 +536,18 @@ export function updateTaskNode(id: number, payload: TaskPatch): Task | null {
       payload.customProperties === undefined
         ? existing.customProperties
         : sanitizeProperties(payload.customProperties),
+    inheritedPropertyKeys:
+      payload.inheritedPropertyKeys === undefined
+        ? existing.inheritedPropertyKeys
+        : sanitizeInheritedPropertyKeys(payload.inheritedPropertyKeys),
     sortOrder:
       payload.sortOrder === undefined
         ? existing.sortOrder
         : Math.max(0, payload.sortOrder)
   });
+
+  syncInheritedPropertyKeysWithTree();
+  return updated;
 }
 
 export function reorderTaskNode(payload: ReorderTaskInput): Task {
@@ -491,6 +600,7 @@ export function deleteTaskNode(id: number): void {
   }
 
   deleteTask(id);
+  syncInheritedPropertyKeysWithTree();
 }
 
 export function exportTaskArchive(): TaskArchive {
@@ -524,6 +634,7 @@ export function importTaskArchive(
   const mode = normalizeImportMode(modeInput);
   if (mode === "replace") {
     replaceAllTasks(importedTasks);
+    syncInheritedPropertyKeysWithTree();
     return { imported: importedTasks.length, mode };
   }
 
@@ -532,6 +643,7 @@ export function importTaskArchive(
   const mergedTasks = [...existingTasks, ...appendedTasks];
   validateTaskGraph(mergedTasks);
   replaceAllTasks(mergedTasks);
+  syncInheritedPropertyKeysWithTree();
 
   return { imported: appendedTasks.length, mode };
 }

@@ -1,6 +1,11 @@
 export type TaskStatus = "todo" | "in_progress" | "done";
 
-export type TaskProperties = Record<string, string>;
+export interface TaskProperty {
+  value: string;
+  inheritable: boolean;
+}
+
+export type TaskProperties = Record<string, TaskProperty>;
 
 export interface TaskRecord {
   id: number;
@@ -12,6 +17,7 @@ export interface TaskRecord {
   dueDate: string | null;
   completedAt: string | null;
   customProperties: TaskProperties;
+  inheritedPropertyKeys: string[];
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
@@ -41,6 +47,7 @@ export interface TaskResponse {
 export interface PropertyItem {
   key: string;
   value: string;
+  inheritable: boolean;
 }
 
 export interface TaskFormValues {
@@ -51,6 +58,7 @@ export interface TaskFormValues {
   isImportant: boolean;
   dueDate: string | null;
   customProperties: PropertyItem[];
+  inheritedPropertyKeys: string[];
 }
 
 export interface TaskFormSubmitValues {
@@ -60,7 +68,8 @@ export interface TaskFormSubmitValues {
   status: TaskStatus;
   isImportant: boolean;
   dueDate: string | null;
-  customProperties: Record<string, string>;
+  customProperties: Record<string, TaskProperty>;
+  inheritedPropertyKeys: string[];
 }
 
 export interface ReorderTaskPayload {
