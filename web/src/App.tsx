@@ -687,13 +687,7 @@ export default function App() {
         {contextHolder}
         <div className="page-shell">
         <section className="hero">
-          <div>
-            <span className="hero__eyebrow">{t("hero.eyebrow")}</span>
-            <h1>{t("hero.title")}</h1>
-            <p>
-              {t("hero.subtitle")}
-            </p>
-          </div>
+          <h1>{t("hero.title")}</h1>
           <Space>
             <Select
               value={locale}
@@ -779,97 +773,100 @@ export default function App() {
             </Card>
           </Col>
           <Col xs={24} lg={15}>
-            <Card className="glass-card" loading={loading}>
-              {selectedTask ? (
-                <div className="detail-pane">
-                  <div className="detail-pane__header">
-                    <div>
-                      <Tag color={statusMeta(selectedTask.status, statusOptions).color}>
-                        {statusMeta(selectedTask.status, statusOptions).label}
-                      </Tag>
-                      <h2>{selectedTask.title}</h2>
-                      <p>{selectedTask.description || t("detail.noDescription")}</p>
-                    </div>
-                    <Space wrap>
-                      <Button icon={<PlusOutlined />} onClick={() => openCreateModal(selectedTask.id)}>
-                        {t("detail.splitSubtask")}
-                      </Button>
-                      <Button icon={<EditOutlined />} onClick={openEditModal}>
-                        {t("detail.edit")}
-                      </Button>
-                      <Popconfirm
-                        title={t("detail.deleteConfirm")}
-                        onConfirm={() => void handleDelete()}
-                      >
-                        <Button danger icon={<DeleteOutlined />}>
-                          {t("common.delete")}
-                        </Button>
-                      </Popconfirm>
-                    </Space>
-                  </div>
-
-                  <div className="quick-actions">
-                    <Button onClick={() => void handleQuickStatus("todo")}>{t("quick.markTodo")}</Button>
-                    <Button onClick={() => void handleQuickStatus("in_progress")}>{t("quick.markInProgress")}</Button>
-                    <Button type="primary" onClick={() => void handleQuickStatus("done")}>{t("quick.markDone")}</Button>
-                  </div>
-
-                  <Card className="inner-card">
-                    <div className="progress-block">
+            <Card className="glass-card detail-card" loading={loading}>
+              <div className="detail-scroll-area">
+                {selectedTask ? (
+                  <div className="detail-pane">
+                    <div className="detail-pane__header">
                       <div>
-                        <span className="section-label">{t("detail.progress")}</span>
-                        <h3>{selectedTask.progress}%</h3>
+                        <Tag color={statusMeta(selectedTask.status, statusOptions).color}>
+                          {statusMeta(selectedTask.status, statusOptions).label}
+                        </Tag>
+                        <h2>{selectedTask.title}</h2>
+                        <p>{selectedTask.description || t("detail.noDescription")}</p>
                       </div>
-                      <Progress percent={selectedTask.progress} strokeColor="#1f6f78" />
+                      <Space wrap>
+                        <Button icon={<PlusOutlined />} onClick={() => openCreateModal(selectedTask.id)}>
+                          {t("detail.splitSubtask")}
+                        </Button>
+                        <Button icon={<EditOutlined />} onClick={openEditModal}>
+                          {t("detail.edit")}
+                        </Button>
+                        <Popconfirm
+                          title={t("detail.deleteConfirm")}
+                          onConfirm={() => void handleDelete()}
+                        >
+                          <Button danger icon={<DeleteOutlined />}>
+                            {t("common.delete")}
+                          </Button>
+                        </Popconfirm>
+                      </Space>
                     </div>
-                  </Card>
 
-                  <Row gutter={[16, 16]}>
-                    <Col xs={24} md={12}>
-                      <Card className="inner-card" title={t("detail.timeInfo")}>
-                        <p>
-                          {t("detail.dueDate", {
-                            value: selectedTask.dueDate
-                              ? dayjs(selectedTask.dueDate).format("YYYY-MM-DD HH:mm")
-                              : t("detail.notSet")
-                          })}
-                        </p>
-                        <p>
-                          {t("detail.completedAt", {
-                            value: selectedTask.completedAt
-                              ? dayjs(selectedTask.completedAt).format("YYYY-MM-DD HH:mm")
-                              : t("detail.notDone")
-                          })}
-                        </p>
-                      </Card>
-                    </Col>
-                    <Col xs={24} md={12}>
-                      <Card className="inner-card" title={t("detail.propertyInheritance")}>
-                        <div className="property-list">
-                          {Object.keys(selectedTask.effectiveProperties || {}).length > 0 ? (
-                            Object.entries(selectedTask.effectiveProperties).map(([key, value]) => (
-                              <div className="property-chip" key={key}>
-                                <span>{key}</span>
-                                <strong>{value}</strong>
-                              </div>
-                            ))
-                          ) : (
-                            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t("detail.noProperties")} />
-                          )}
-                        </div>
-                      </Card>
-                    </Col>
-                  </Row>
+                    <Card className="inner-card property-card" title={t("detail.propertyInheritance")}>
+                      <div className="property-list property-list--emphasis">
+                        {Object.keys(selectedTask.effectiveProperties || {}).length > 0 ? (
+                          Object.entries(selectedTask.effectiveProperties).map(([key, value]) => (
+                            <div className="property-chip property-chip--emphasis" key={key}>
+                              <span>{key}</span>
+                              <strong>{value}</strong>
+                            </div>
+                          ))
+                        ) : (
+                          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t("detail.noProperties")} />
+                        )}
+                      </div>
+                    </Card>
 
-                  <Card className="inner-card" title={t("detail.inheritanceSummary")}>
-                    <p>{t("detail.inheritedCount", { value: Object.keys(selectedTask.inheritedProperties || {}).length })}</p>
-                    <p>{t("detail.customCount", { value: Object.keys(selectedTask.customProperties || {}).length })}</p>
-                    <p>{t("detail.childrenCount", { value: selectedTask.children?.length ?? 0 })}</p>
-                  </Card>
-                </div>
-              ) : (
-                <Empty description={t("detail.empty")} />
-              )}
+                    <div className="quick-actions">
+                      <Button onClick={() => void handleQuickStatus("todo")}>{t("quick.markTodo")}</Button>
+                      <Button onClick={() => void handleQuickStatus("in_progress")}>{t("quick.markInProgress")}</Button>
+                      <Button type="primary" onClick={() => void handleQuickStatus("done")}>{t("quick.markDone")}</Button>
+                    </div>
+
+                    <Row gutter={[12, 12]} className="detail-meta-grid">
+                      <Col xs={24} md={8}>
+                        <Card className="inner-card inner-card--compact">
+                          <div className="progress-block progress-block--compact">
+                            <div>
+                              <span className="section-label">{t("detail.progress")}</span>
+                              <h3>{selectedTask.progress}%</h3>
+                            </div>
+                            <Progress percent={selectedTask.progress} strokeColor="#1f6f78" />
+                          </div>
+                        </Card>
+                      </Col>
+                      <Col xs={24} md={8}>
+                        <Card className="inner-card inner-card--compact" title={t("detail.timeInfo")}>
+                          <p>
+                            {t("detail.dueDate", {
+                              value: selectedTask.dueDate
+                                ? dayjs(selectedTask.dueDate).format("YYYY-MM-DD HH:mm")
+                                : t("detail.notSet")
+                            })}
+                          </p>
+                          <p>
+                            {t("detail.completedAt", {
+                              value: selectedTask.completedAt
+                                ? dayjs(selectedTask.completedAt).format("YYYY-MM-DD HH:mm")
+                                : t("detail.notDone")
+                            })}
+                          </p>
+                        </Card>
+                      </Col>
+                      <Col xs={24} md={8}>
+                        <Card className="inner-card inner-card--compact" title={t("detail.inheritanceSummary")}>
+                          <p>{t("detail.inheritedCount", { value: Object.keys(selectedTask.inheritedProperties || {}).length })}</p>
+                          <p>{t("detail.customCount", { value: Object.keys(selectedTask.customProperties || {}).length })}</p>
+                          <p>{t("detail.childrenCount", { value: selectedTask.children?.length ?? 0 })}</p>
+                        </Card>
+                      </Col>
+                    </Row>
+                  </div>
+                ) : (
+                  <Empty description={t("detail.empty")} />
+                )}
+              </div>
             </Card>
           </Col>
         </Row>
