@@ -88,6 +88,32 @@ body {
   backdrop-filter: blur(14px);
 }
 
+.tree-card .ant-card-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.tree-scroll-area {
+  max-height: min(66vh, 720px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 6px;
+}
+
+.tree-scroll-area::-webkit-scrollbar {
+  width: 8px;
+}
+
+.tree-scroll-area::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(31, 111, 120, 0.35);
+}
+
+.tree-scroll-area::-webkit-scrollbar-track {
+  background: rgba(31, 111, 120, 0.08);
+  border-radius: 999px;
+}
+
 .tree-node {
   display: flex;
   justify-content: space-between;
@@ -210,6 +236,10 @@ body {
 }
 
 @media (max-width: 960px) {
+  .tree-scroll-area {
+    max-height: 52vh;
+  }
+
   .hero {
     flex-direction: column;
     align-items: start;

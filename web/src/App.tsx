@@ -754,26 +754,28 @@ export default function App() {
         <Row gutter={[20, 20]}>
           <Col xs={24} lg={9}>
             <Card
-              className="glass-card"
+              className="glass-card tree-card"
               title={t("tree.title")}
               extra={<Button type="link" onClick={() => openCreateModal()}>{t("tree.add")}</Button>}
               loading={loading}
             >
-              {tree.length > 0 ? (
-                <Tree
-                  draggable
-                  selectedKeys={selectedId ? [String(selectedId)] : []}
-                  treeData={toTreeData(tree, statusOptions)}
-                  defaultExpandAll
-                  onDrop={(info) => void handleDrop(info)}
-                  onSelect={(keys) => {
-                    const first = keys[0];
-                    setSelectedId(first ? Number(first) : null);
-                  }}
-                />
-              ) : (
-                <Empty description={t("tree.empty")} />
-              )}
+              <div className="tree-scroll-area">
+                {tree.length > 0 ? (
+                  <Tree
+                    draggable
+                    selectedKeys={selectedId ? [String(selectedId)] : []}
+                    treeData={toTreeData(tree, statusOptions)}
+                    defaultExpandAll
+                    onDrop={(info) => void handleDrop(info)}
+                    onSelect={(keys) => {
+                      const first = keys[0];
+                      setSelectedId(first ? Number(first) : null);
+                    }}
+                  />
+                ) : (
+                  <Empty description={t("tree.empty")} />
+                )}
+              </div>
             </Card>
           </Col>
           <Col xs={24} lg={15}>
