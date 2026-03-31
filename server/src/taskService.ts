@@ -95,7 +95,7 @@ function sanitizeProperties(input: unknown): TaskProperties {
   return Object.fromEntries(
     Object.entries(input)
       .map(([key, value]) => [String(key).trim(), String(value ?? "").trim()])
-      .filter(([key, value]) => key && value)
+      .filter(([key]) => key)
   );
 }
 

@@ -154,8 +154,8 @@ function propertyArrayToObject(items: PropertyItem[]): Record<string, string> {
   return items.reduce<Record<string, string>>((acc, item) => {
     const key = item.key?.trim();
     const value = item.value?.trim();
-    if (key && value) {
-      acc[key] = value;
+    if (key) {
+      acc[key] = value ?? "";
     }
     return acc;
   }, {});
