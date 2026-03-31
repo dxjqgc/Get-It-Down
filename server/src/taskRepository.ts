@@ -23,12 +23,17 @@ function parseTask(row: TaskRow): Task {
   const normalizedCustomProperties: Task["customProperties"] = Object.fromEntries(
     Object.entries(rawCustomProperties).map(([key, value]) => {
       if (value && typeof value === "object" && !Array.isArray(value)) {
-        const item = value as { value?: unknown; inheritable?: unknown };
+        const item = value as {
+          value?: unknown;
+          inheritable?: unknown;
+          crossLevelInheritable?: unknown;
+        };
         return [
           key,
           {
             value: String(item.value ?? ""),
-            inheritable: Boolean(item.inheritable)
+            inheritable: Boolean(item.inheritable),
+            crossLevelInheritable: Boolean(item.crossLevelInheritable)
           }
         ];
       }
@@ -36,7 +41,8 @@ function parseTask(row: TaskRow): Task {
         key,
         {
           value: String(value ?? ""),
-          inheritable: false
+          inheritable: false,
+          crossLevelInheritable: false
         }
       ];
     })

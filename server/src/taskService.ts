@@ -102,12 +102,17 @@ function sanitizeProperties(input: unknown): TaskProperties {
           return null;
         }
         if (value && typeof value === "object" && !Array.isArray(value)) {
-          const item = value as { value?: unknown; inheritable?: unknown };
+          const item = value as {
+            value?: unknown;
+            inheritable?: unknown;
+            crossLevelInheritable?: unknown;
+          };
           return [
             trimmedKey,
             {
               value: String(item.value ?? "").trim(),
-              inheritable: Boolean(item.inheritable)
+              inheritable: Boolean(item.inheritable),
+              crossLevelInheritable: Boolean(item.crossLevelInheritable)
             } satisfies TaskProperty
           ] as const;
         }
@@ -115,7 +120,8 @@ function sanitizeProperties(input: unknown): TaskProperties {
           trimmedKey,
           {
             value: String(value ?? "").trim(),
-            inheritable: false
+            inheritable: false,
+            crossLevelInheritable: false
           } satisfies TaskProperty
         ] as const;
       })
@@ -136,12 +142,22 @@ function sanitizeInheritedPropertyKeys(input: unknown): string[] {
   );
 }
 
-function availableInheritableFromEffective(properties: TaskProperties): Set<string> {
-  return new Set(
-    Object.entries(properties)
-      .filter(([, item]) => item.inheritable)
-      .map(([key]) => key)
+function availablePropertiesForChildren(
+  inheritedProperties: TaskProperties,
+  customProperties: TaskProperties
+): TaskProperties {
+  const fromInherited = Object.fromEntries(
+    Object.entries(inheritedProperties).filter(
+      ([, property]) => property.inheritable && property.crossLevelInheritable
+    )
   );
+  const fromCustom = Object.fromEntries(
+    Object.entries(customProperties).filter(([, property]) => property.inheritable)
+  );
+  return {
+    ...fromInherited,
+    ...fromCustom
+  };
 }
 
 function syncInheritedPropertyKeysWithTree(): void {
@@ -160,8 +176,8 @@ function syncInheritedPropertyKeysWithTree(): void {
     entries.sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
   });
 
-  const walk = (task: Task, inheritedFromParent: TaskProperties): void => {
-    const parentInheritableKeys = availableInheritableFromEffective(inheritedFromParent);
+  const walk = (task: Task, parentAvailableForChild: TaskProperties): void => {
+    const parentInheritableKeys = new Set(Object.keys(parentAvailableForChild));
     const sanitizedSelectedKeys =
       task.parentId == null
         ? []
@@ -177,16 +193,15 @@ function syncInheritedPropertyKeysWithTree(): void {
 
     const inheritedSelected: TaskProperties = Object.fromEntries(
       sanitizedSelectedKeys
-        .filter((key) => key in inheritedFromParent)
-        .map((key) => [key, inheritedFromParent[key] as TaskProperty])
+        .filter((key) => key in parentAvailableForChild)
+        .map((key) => [key, parentAvailableForChild[key] as TaskProperty])
     );
 
-    const effective: TaskProperties = {
-      ...inheritedSelected,
-      ...task.customProperties
-    };
-
-    (byParent.get(task.id) ?? []).forEach((child) => walk(child, effective));
+    const availableForChildren = availablePropertiesForChildren(
+      inheritedSelected,
+      task.customProperties
+    );
+    (byParent.get(task.id) ?? []).forEach((child) => walk(child, availableForChildren));
   };
 
   (byParent.get(null) ?? []).forEach((root) => walk(root, {}));
@@ -409,23 +424,27 @@ function buildTree(tasks: Task[]): TaskTreeNode[] {
 
   const decorate = (
     node: TaskTreeNode,
-    parentProperties: TaskProperties = {}
+    parentAvailableForChild: TaskProperties = {}
   ): TaskTreeNode => {
-    const parentInheritableKeys = availableInheritableFromEffective(parentProperties);
+    const parentInheritableKeys = new Set(Object.keys(parentAvailableForChild));
     const selectedInheritedKeys = node.inheritedPropertyKeys.filter((key) =>
       parentInheritableKeys.has(key)
     );
     node.inheritedProperties = Object.fromEntries(
       selectedInheritedKeys
-        .filter((key) => key in parentProperties)
-        .map((key) => [key, parentProperties[key] as TaskProperty])
+        .filter((key) => key in parentAvailableForChild)
+        .map((key) => [key, parentAvailableForChild[key] as TaskProperty])
     );
     node.effectiveProperties = {
       ...node.inheritedProperties,
       ...node.customProperties
     };
 
-    node.children.forEach((child) => decorate(child, node.effectiveProperties));
+    const availableForChildren = availablePropertiesForChildren(
+      node.inheritedProperties,
+      node.customProperties
+    );
+    node.children.forEach((child) => decorate(child, availableForChildren));
 
     if (node.children.length === 0) {
       node.progress = node.status === "done" ? 100 : 0;

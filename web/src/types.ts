@@ -3,6 +3,7 @@ export type TaskStatus = "todo" | "in_progress" | "done";
 export interface TaskProperty {
   value: string;
   inheritable: boolean;
+  crossLevelInheritable: boolean;
 }
 
 export type TaskProperties = Record<string, TaskProperty>;
@@ -48,6 +49,7 @@ export interface PropertyItem {
   key: string;
   value: string;
   inheritable: boolean;
+  crossLevelInheritable: boolean;
 }
 
 export interface TaskFormValues {

@@ -309,6 +309,14 @@ body {
   flex: 1;
 }
 
+.property-row .property-row__switch-item {
+  flex: 0 0 auto;
+}
+
+.property-row__switch-item .ant-switch {
+  min-width: 78px;
+}
+
 @media (max-width: 960px) {
   .tree-scroll-area {
     height: 52vh;

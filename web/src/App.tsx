@@ -71,6 +71,7 @@ interface ParentOption {
 interface InheritableOption {
   value: string;
   label: string;
+  source: "custom" | "inherited";
 }
 
 interface TaskModalState {
@@ -164,7 +165,8 @@ function propertyArrayToObject(items: PropertyItem[]): TaskFormSubmitValues["cus
     if (key) {
       acc[key] = {
         value: value ?? "",
-        inheritable: Boolean(item.inheritable)
+        inheritable: Boolean(item.inheritable),
+        crossLevelInheritable: Boolean(item.crossLevelInheritable)
       };
     }
     return acc;
@@ -175,7 +177,8 @@ function customPropertiesToItems(custom: TaskTreeNode["customProperties"]): Prop
   return Object.entries(custom ?? {}).map(([key, property]) => ({
     key,
     value: property.value ?? "",
-    inheritable: Boolean(property.inheritable)
+    inheritable: Boolean(property.inheritable),
+    crossLevelInheritable: Boolean(property.crossLevelInheritable)
   }));
 }
 
@@ -381,7 +384,17 @@ function TaskModal({
             <div className="property-editor">
               <div className="property-editor__header">
                 <span>{t("form.customProperties")}</span>
-                <Button size="small" onClick={() => add({ key: "", value: "", inheritable: false })}>
+                <Button
+                  size="small"
+                  onClick={() =>
+                    add({
+                      key: "",
+                      value: "",
+                      inheritable: false,
+                      crossLevelInheritable: false
+                    })
+                  }
+                >
                   {t("form.addProperty")}
                 </Button>
               </div>
@@ -405,8 +418,18 @@ function TaskModal({
                     name={[field.name, "inheritable"]}
                     valuePropName="checked"
                     initialValue={false}
+                    className="property-row__switch-item"
                   >
-                    <Switch size="small" checkedChildren={t("form.inheritable")} unCheckedChildren={t("form.nonInheritable")} />
+                    <Switch checkedChildren={t("form.inheritable")} unCheckedChildren={t("form.nonInheritable")} />
+                  </Form.Item>
+                  <Form.Item
+                    {...field}
+                    name={[field.name, "crossLevelInheritable"]}
+                    valuePropName="checked"
+                    initialValue={false}
+                    className="property-row__switch-item"
+                  >
+                    <Switch checkedChildren={t("form.crossLevelInheritable")} unCheckedChildren={t("form.nonCrossLevelInheritable")} />
                   </Form.Item>
                   <Button danger onClick={() => remove(field.name)}>
                     {t("common.delete")}
@@ -566,9 +589,17 @@ export default function App() {
   const inheritableOptionsByParent = useMemo<Record<string, InheritableOption[]>>(
     () =>
       flatTasks.reduce<Record<string, InheritableOption[]>>((acc, task) => {
-        acc[String(task.id)] = Object.entries(task.effectiveProperties ?? {})
+        const inheritedEligible = Object.entries(task.inheritedProperties ?? {})
+          .filter(([, property]) => property.inheritable && property.crossLevelInheritable)
+          .map(([key]) => ({ value: key, label: key, source: "inherited" as const }));
+        const customEligible = Object.entries(task.customProperties ?? {})
           .filter(([, property]) => property.inheritable)
-          .map(([key]) => ({ value: key, label: key }));
+          .map(([key]) => ({ value: key, label: key, source: "custom" as const }));
+        const uniqueByKey = new Map<string, InheritableOption>();
+        [...inheritedEligible, ...customEligible].forEach((option) => {
+          uniqueByKey.set(option.value, option);
+        });
+        acc[String(task.id)] = Array.from(uniqueByKey.values());
         return acc;
       }, {}),
     [flatTasks]
@@ -584,9 +615,9 @@ export default function App() {
         parentId: parentId ?? undefined,
         isImportant: false,
         customProperties: [],
-        inheritedPropertyKeys: Object.entries(parentTask?.effectiveProperties ?? {})
-          .filter(([, property]) => property.inheritable)
-          .map(([key]) => key)
+        inheritedPropertyKeys: (inheritableOptionsByParent[String(parentId ?? "")] ?? [])
+          .filter((item) => item.source === "custom")
+          .map((item) => item.value)
       }
     });
   };

@@ -3,6 +3,7 @@ export type TaskStatus = "todo" | "in_progress" | "done";
 export interface TaskProperty {
   value: string;
   inheritable: boolean;
+  crossLevelInheritable: boolean;
 }
 
 export type TaskProperties = Record<string, TaskProperty>;
